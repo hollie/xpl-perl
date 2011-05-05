@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+test "$1" = 'purge' || exit 0
+
+svc -x /etc/sv/xpl-plugwise || :
+rm -rf /etc/sv/xpl-plugwise
+rm -rf /var/lib/supervise/xpl-plugwise /var/lib/supervise/xpl-plugwise.log
+for i in '@*' current config lock state; do
+  rm -f /var/log/xpl-perl/xpl-plugwise/$i
+done
+rmdir /var/log/xpl-perl/xpl-plugwise || :

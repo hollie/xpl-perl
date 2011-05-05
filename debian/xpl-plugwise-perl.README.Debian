@@ -1,0 +1,10 @@
+xpl-plugwise-perl
+---------------
+
+This package automatically sets up the xPL Perl hub service.  By
+default the xPL Perl hub listens on IP address 127.0.0.1 and
+broadcasts on the same address.  These defaults can be modified
+for all xPL Perl clients by editing the /etc/xpl-perl/env/IP
+and /etc/xpl-perl/env/IPSEND files respectively.
+
+ -- Lieven Hollevoet <lieven@lika.be> 20110505

@@ -132,6 +132,10 @@ debian/xpl-owfs-perl.postinst
 debian/xpl-owfs-perl.postrm
 debian/xpl-owfs-perl.prerm
 debian/xpl-owfs-perl.README.Debian
+debian/xpl-plugwise.postinst
+debian/xpl-plugwise.postrm
+debian/xpl-plugwise.prerm
+debian/xpl-plugwise.README.Debian
 debian/xpl-rfxcom-perl.postinst
 debian/xpl-rfxcom-perl.postrm
 debian/xpl-rfxcom-perl.prerm
