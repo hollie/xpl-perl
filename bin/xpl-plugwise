@@ -1,0 +1,68 @@
+#!/usr/bin/perl -w
+
+eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
+    if 0; # not running under some shell
+
+=head1 NAME
+
+xpl-plugwise - Perl script for an xPL Plugwise application
+
+=head1 SYNOPSIS
+
+  xpl-plugwise [flags] [options] --rfxcom-rx <device>
+  where valid flags are:
+    --help              - show this help text
+    --verbose           - verbose mode (for the xPL layer)
+    --plugwise-verbose  - verbose mode (for the Plugwise layer)
+  and valid options are (default shown in brackets):
+    --interface if0          - the interface for xPL messages (first
+                               non-loopback or loopback)
+    --plugwise-tty /dev/tty  - the serial device for the receiver
+    --plugwise-baud nnnn     - the baud rate for the receiver (115200)
+
+  # start the rfxcom-rx application on first ethernet interface in
+  # verbose mode
+  xpl-rfxcom-rx --interface eth0 --verbose \
+                --rfxcom-verbose --rfxcom-rx <device>
+
+=head1 DESCRIPTION
+
+This script is an xPL client that interfaces with an Plugwise USB stick
+
+=cut
+
+use strict;
+use warnings;
+use xPL::Dock qw/Plugwise/;
+$|=1; # autoflush helps debugging
+my $xpl = xPL::Dock->new;
+$xpl->main_loop;
+
+# send a 'hbeat.end' message on exit
+END { defined $xpl && $xpl->send_hbeat_end(); }
+
+=head1 BUGS
+
+The status report message reported the onoff state incorrectly, fixed by Lieven Hollevoet on 20091002
+
+=head1 SEE ALSO
+
+xPL::Dock(3), xPL::Listener(3)
+
+Project website: http://www.xpl-perl.org.uk/
+
+Plugwise website: http://www.plugwise.com/
+
+=head1 AUTHOR
+
+Jfn, E<lt>pe1pqf@REMOVE_THISzonnet.nlE<gt>
+
+=head1 COPYRIGHT
+
+Copyright (C) 2007, 2008 by Jfn / Mark Hindess
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.8.7 or,
+at your option, any later version of Perl 5 you may have available.
+
+=cut

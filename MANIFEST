@@ -28,6 +28,7 @@ bin/xpl-mythtv
 bin/xpl-owfs
 bin/xpl-packet-trace
 bin/xpl-perl-setup
+bin/xpl-plugwise
 bin/xpl-rfxcom
 bin/xpl-rfxcom-rx
 bin/xpl-rfxcom-tx

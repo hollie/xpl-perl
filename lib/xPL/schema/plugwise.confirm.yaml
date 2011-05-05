@@ -1,0 +1,111 @@
+---
+doc: http://wiki.xplproject.org.uk/index.php/Schema_-_X10.BASIC
+default_message_type: xpl-trig
+types:
+  xpl-trig:
+    fields:
+      - name: command
+        die: 1
+        validation: 
+          type: Set
+          set:
+            - on
+            - off
+            - status
+            - calibrate
+            - powerinfo
+            - powerbuf
+      - name: device
+        error: "It should be a comma-separated list of devices - e.g. '3FED03,3BCD89,3ACDFF'."
+        validation: 
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){6}((,\s*)([A-Fa-f]|[0-9]){6})*'
+      - name: gaina
+        error: "It should be a 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: gainb
+        error: "It should be a 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: offtot
+        error: "It should be a 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: offruis
+        error: "It should be a 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: abshour
+        error: "It should be a 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: lastlog
+        error: "It should be a 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: onoff
+        error: "It should be on or off"
+        validation:
+          type: Pattern
+          pattern: 'on|off'
+      - name: hwver
+        error: "It should be a 12 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){12}'
+      - name: firstbuf
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: secondbuf
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: thirdbuf
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: fourthbuf
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: firstpulse
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: secondpulse
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: thirdpulse
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: fourthpulse
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+      - name: curlogaddr
+        error: "It should be 8 characters long"
+        validation:
+          type: Pattern
+          pattern: '([A-Fa-f]|[0-9]){8}'
+    summary:
+      - name: command
+      - name: device
+        prefix: " "
