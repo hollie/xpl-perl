@@ -198,38 +198,10 @@ sub ownet_reader {
         my $id = substr $dev, -16, 15;
         my ($type, $index) = @{$map{$file}};
         my $dev_str = $id.(defined $index ? '.'.$index : '');
-        my $old = $self->{_state}->{$file};
-        my $message_type =
-          (defined $old && $value eq $old) ? "xpl-stat" : "xpl-trig";
-        $self->{_state}->{$file} = $value;
-        $self->send_xpl($message_type, $dev_str, $type, $value);
+        $self->xpl->send_sensor_basic($dev_str, $type, $value);
         1;
       }, \@files);
   return 1;
-}
-
-=head2 C<send_xpl( $message_type, $device, $type, $current )>
-
-This functions is used to send out sensor.basic xPL messages with
-the state of one-wire sensors.
-
-=cut
-
-sub send_xpl {
-  my ($self, $message_type, $device, $type, $current) = @_;
-  my %args =
-    (
-     message_type => $message_type,
-     schema => 'sensor.basic',
-     body =>
-     [
-      device => $device,
-      type => $type,
-      current => $current,
-     ],
-    );
-  $self->debug("Sending $device\[$type]=$current\n");
-  return $self->xpl->send(%args);
 }
 
 1;

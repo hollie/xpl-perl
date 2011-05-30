@@ -175,7 +175,8 @@ sub process_line {
       my $change = $self->state_changed('i', $index+1,
                                         substr($line, $index, 1),
                                         $time) or next;
-      $self->send_xpl(@$change);
+      my ($device, $level) = @$change;
+      $self->xpl->send_sensor_basic($device, 'input', $level);
     }
   } elsif ($line =~ /^(Input|Output) (\d+) (Inactive|Active)$/) {
     return unless ($self->state_changed(lc $1, $2, $3, $time) ||
@@ -183,28 +184,6 @@ sub process_line {
   }
   $self->info($line, "\n");
   return 1;
-}
-
-=head2 C<send_xpl( $device, $level )>
-
-This functions is used to send out sensor.basic xpl-trig messages as a
-result of changes to the VIOM inputs.
-
-=cut
-
-sub send_xpl {
-  my $self = shift;
-  my $device = shift;
-  my $level = shift;
-  my $xpl = $self->xpl;
-  my %args =
-    (
-     message_type => 'xpl-trig',
-     schema => 'sensor.basic',
-     body => [ device => $device, type => 'input', current => $level ],
-    );
-  $self->info('Sending ', $device, ' ', $level, "\n");
-  return $xpl->send(%args);
 }
 
 =head2 C<current_state( $type, $num )>

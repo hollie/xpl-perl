@@ -70,6 +70,7 @@ GetOptions('verbose+' => \$verbose,
            'man' => \$man,
            'message_type|m=s' => \$message_type,
            'class=s' => \$schema,
+           'schema=s' => \$schema,
            'source=s' => \$source,
            'target=s' => \$target,
            'wait=i' => \$wait,
@@ -80,8 +81,9 @@ $args{'interface'} = $interface if ($interface);
 $args{'verbose'} = $verbose if ($verbose);
 
 my %msg_args = ();
-defined $schema or pod2usage(-message => q{Requires '-c' schema parameter},
-                            -exitstatus => 1);
+defined $schema or
+  pod2usage(-message => q{Requires '--schema' schema parameter},
+            -exitstatus => 1);
 $msg_args{'-m'} = $message_type if (defined $message_type);
 $msg_args{'-c'} = $schema if (defined $schema);
 $msg_args{'-s'} = $source if (defined $source);
@@ -104,8 +106,6 @@ $xpl->main_loop();
 sub xpl_hub_response {
   my %p = @_;
   my $msg = $p{message};
-  my $peeraddr = $p{peeraddr};
-  my $peerport = $p{peerport};
 
   print STDERR "Sending\n" if ($verbose);
   xpl_send();
@@ -129,8 +129,6 @@ sub xpl_send {
 sub xpl_response {
   my %p = @_;
   my $msg = $p{message};
-  my $peeraddr = $p{peeraddr};
-  my $peerport = $p{peerport};
 
   if ($verbose) {
     print $msg->string;
@@ -138,9 +136,8 @@ sub xpl_response {
     if ($msg->schema ne 'ping') {
       print $msg->summary, "\n";
     } else {
-      my $rtt = (Time::HiRes::time-$start_time) - $msg->delay;
-      my $time = $msg->checktime ||
-        $msg->extra_field('time'); # deprecated
+      my $rtt = (Time::HiRes::time-$start_time) - $msg->field('delay');
+      my $time = $msg->field('checktime');
       $time = defined $time ? sprintf '%.6f', $time : 'timeout';
       printf("ping.response: rtt=%.6f checktime=%s %s\n",
              $rtt, $time, $msg->source);

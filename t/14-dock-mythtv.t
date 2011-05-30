@@ -21,6 +21,20 @@ sub xPL::Dock::send_aux {
   my $self = shift;
   my $sin = shift;
   push @msg, [@_];
+  my $msg;
+  if (scalar @_ == 1) {
+    $msg = shift;
+  } else {
+    eval {
+      my %p = @_;
+      $p{head}->{source} = $self->id if ($self->can('id') &&
+                                         !exists $p{head}->{source});
+      $msg = xPL::Message->new(%p);
+      # don't think this can happen: return undef unless ($msg);
+    };
+    $self->argh("message error: $@") if ($@);
+  }
+  $msg;
 }
 
 $ENV{XPL_HOSTNAME} = 'mytestid';
@@ -63,14 +77,14 @@ $client->print(q{
     <h2>Encoder status</h2>
     Encoder 1 is local on backend1 and is recording: 'Lost' on C101.<br />
     Encoder 2 is local on backend1 and is recording: 'Found' on C102.<br />
-    Encoder 3 is local on backend1 and is not recording.<br />
+    Encoder 3 [ DVB : /dev/dvb/adapter0/frontend0 ] is local on backend1 and is not recording.<br />
   </div>
 });
 
 wait_for_variable($xpl, \$plugin->{_read_count});
 
 check_sent_msg({
-                message_type => 'xpl-stat',
+                message_type => 'xpl-trig',
                 schema => 'sensor.basic',
                 body =>
                 [
@@ -104,7 +118,7 @@ $client->print(q{
 wait_for_variable($xpl, \$plugin->{_read_count});
 
 check_sent_msg({
-                message_type => 'xpl-stat',
+                message_type => 'xpl-trig',
                 schema => 'sensor.basic',
                 body =>
                 [

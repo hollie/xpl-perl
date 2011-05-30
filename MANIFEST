@@ -26,6 +26,7 @@ bin/xpl-monitor
 bin/xpl-mpd
 bin/xpl-mythtv
 bin/xpl-owfs
+bin/xpl-ownet
 bin/xpl-packet-trace
 bin/xpl-perl-setup
 bin/xpl-plugwise
@@ -37,6 +38,7 @@ bin/xpl-rrd-graphs
 bin/xpl-send.c
 bin/xpl-sender
 bin/xpl-send.sh
+bin/xpl-smart
 bin/xpl-sms-send
 bin/xpl-tcphelp
 bin/xpl-tty-tcp
@@ -198,10 +200,12 @@ lib/xPL/Dock/Linux.pm
 lib/xPL/Dock/LIRC.pm
 lib/xPL/Dock/Mythtv.pm
 lib/xPL/Dock/Owfs.pm
+lib/xPL/Dock/OWNet.pm
 lib/xPL/Dock/Plug.pm
 lib/xPL/Dock.pm
 lib/xPL/Dock/RFXComRX.pm
 lib/xPL/Dock/RFXComTX.pm
+lib/xPL/Dock/SMART.pm
 lib/xPL/Dock/TCPHelp.pm
 lib/xPL/Dock/UDIN.pm
 lib/xPL/Dock/VIOM.pm
@@ -295,12 +299,10 @@ t/01-xpl-message.t
 t/01-xpl-slowmessage.t
 t/01-xpl-utils.t
 t/01-xpl-validation.t
-t/02-homeeasy.t
 t/02-message.t
 t/02-message-v.t
 t/02-schema-yaml.t
 t/02-timer.t
-t/02-x10.t
 t/03-message-errors.t
 t/03-message-errors-v.t
 t/03-message-from-payload.t

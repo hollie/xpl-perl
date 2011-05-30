@@ -23,8 +23,8 @@ use 5.006;
 use strict;
 use warnings;
 use English qw/-no_match_vars/;
+use Fcntl;
 use Carp;
-use DB_File;
 eval { require YAML::Syck; import YAML::Syck qw/LoadFile/; };
 if ($@) {
   eval { require YAML; import YAML qw/LoadFile/; };
@@ -390,7 +390,9 @@ sub _load_config {
   my $config_path = $ENV{XPL_CONFIG_PATH} || '/var/cache/xpl-perl';
   my $file = $config_path.'/'.$instance_key.'.db';
   my %h;
-  my $res = tie %h, 'DB_File', $file, O_CREAT|O_RDWR, 0666, $DB_HASH;
+  eval { require DB_File; import DB_File; };
+  croak("DB_File module required to use xPL config.basic support.\n") if ($@);
+  my $res = tie %h, 'DB_File', $file, O_CREAT|O_RDWR, 0666, $DB_File::DB_HASH;
   unless ($res) {
     croak("Failed to create configuration DB_File, $file: $!\n");
   }
