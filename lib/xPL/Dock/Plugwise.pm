@@ -2,7 +2,7 @@ package xPL::Dock::Plugwise;
 
 =head1 NAME
 
-xPL::Dock::Plugwise - xPL::Dock plugin for an Plugwise USB stick
+xPL::Dock::Plugwise - xPL::Dock plugin for a Plugwise USB stick
 
 =head1 SYNOPSIS
 
@@ -12,8 +12,7 @@ xPL::Dock::Plugwise - xPL::Dock plugin for an Plugwise USB stick
 
 =head1 DESCRIPTION
 
-This module creates an xPL client for a serial port-based device.  There
-are several usage examples provided by the xPL Perl distribution.
+This L<xPL::Dock> plugin adds control of a Plugwise network through a Stick
 
 Current implemented functions:
 
@@ -31,6 +30,7 @@ use English qw/-no_match_vars/;
 use xPL::IOHandler;
 use xPL::Dock::Plug;
 use Digest::CRC qw(crc);
+use Data::Dumper;
 
 our @ISA = qw(xPL::Dock::Plug);
 our %EXPORT_TAGS = ( 'all' => [ qw() ] );
@@ -53,7 +53,6 @@ sub getopts {
   return
     (
      'plugwise-verbose+' => \$self->{_verbose},
-     'plugwise-baud=i' => \$self->{_baud},
      'plugwise-tty=s' => \$self->{_device},
     );
 }
@@ -61,26 +60,6 @@ sub getopts {
 =head2 C<init(%params)>
 
 =cut
-
-sub plugwise_crc
-{
-  sprintf ("%04X", crc($_[0], 16, 0, 0, 0, 0x1021, 0));
-}
-
-sub plugwise_valid_response
-{
-  my $t=$_[0];
-  $t =~ s/(\n|.)*\x05\x05\x03\x03//g; # Strip header
-  $t =~ s/(\r\n)$//; # Strip trailing CRLF
-
-  # 28 = ON/OFF, 56 = Calibration info, 66 = Status info, 40 = powerinfo, 96 = powerbuf
-  if ( (length($t) == 28) || (length($t) == 56) || (length($t) == 66) || (length($t) == 40) || (length($t) == 96))
-  {
-    return $t if ( plugwise_crc( substr($t, 0, -4)) eq substr($t, -4, 4)); # Valid checksum, so return $t
-  }
-}
-
-sub hex2int   { unpack("N", pack("H8", substr('0'x8 .$_[0], -8))) }
 
 sub init {
   my $self = shift;
@@ -111,7 +90,26 @@ sub init {
                           class_type => 'basic',
                          });
 
+  # Set the state to 'unconnected' to stick, we need to init first!
+  $self->{_plugwise}->{connected} = 0;
+
+  # Init the buffer that will be used for serial data reception
+  $self->{_uart_rx_buffer} = "";
+
+  # Send the init message to connect to the stick
+  #$self->stick_init($io);
+
   return $self;
+}
+
+=head2 C<vendor_id()>
+
+Defines the vendor ID for the PlugWise plugin. Doesn't seem to propagate?
+
+=cut
+
+sub vendor_id {
+  'bnz'
 }
 
 =head2 C<device_reader()>
@@ -125,13 +123,35 @@ status of Circles that are switched on/off
 =cut
 
 sub device_reader {
-  my ($self, $handler, $msg, $last) = @_;
+  my ($self, $handler, $new_msg, $last) = @_;
 
   my $xpl = $self->xpl;
 
-  my $result=plugwise_valid_response($msg); # Validate received packet
+  my $msg = $self->{_uart_rx_buffer} . $new_msg;
 
-  return 1 if ($result eq ""); # No valid packet received, just return
+  my $frame;
+
+  print "msg now looks like this: +++$msg+++\n";
+
+  # Check if we can find a response between the start of frame and end of frame
+  if ($msg =~ /(\x05\x05\x03\x03\w+\r\n)(.+)/){
+      $frame = $1;
+      $self->{_uart_rx_buffer} = $2;
+      print "Found frame $frame - remaining: $2\n";
+  } else {
+      $self->{_uart_rx_buffer} = $msg;
+      print "UART RX buffer is now $self->{_uart_rx_buffer}\n";
+      return 1;
+  }
+
+  my $result=$self->plugwise_process_response($frame); # Processes the received frame, this is done in another routine to split the Plugwise protocol implementation and the xPL packet generation
+
+  print "QUEUE --------------------------\n";
+  print Dumper($self->{_command_queue});
+  print "PLUGWISE STATUS ----------------\n";
+  print Dumper($self->{_plugwise});
+
+  return 1 if ($result eq ""); # No packet received that needs an xPL message to be sent
   print "Packet received: $result\n";
 
   my %xplmsg = (
@@ -188,7 +208,7 @@ sub device_reader {
     $xplmsg{'body'}{'curlogaddr'}  = substr($result, 84, 8); # Log address of current buffer
   }
     
-  $xpl->send(%xplmsg);
+  #$xpl->send(%xplmsg);
 
   return 1;
 }
@@ -202,16 +222,24 @@ the incoming plugwise.basic schema messages.
 =cut
 
 sub xpl_plug {
+
   my %p = @_;
   my $msg = $p{message};
-  my $peeraddr = $p{peeraddr};
-  my $peerport = $p{peerport};
   my $self = $p{arguments};
+
   my $packet;
- 
-  if ($msg->device) {
-    my $command = lc($msg->command);
-    foreach my $circle (split /,/, $msg->device) {
+
+  print Dumper($msg);
+
+
+  if (! $self->{_plugwise}->{connected}){
+    print "Not yet connect to stick, init first\n";
+    $self->stick_init();
+  }
+
+  if ($msg->field('device')) {
+    my $command = lc($msg->field('command'));
+    foreach my $circle (split /,/, $msg->field('device')) {
       if ($command eq 'on') {
         $packet = "0017" . "000D6F0000" . uc($circle) . "01";
       }
@@ -231,18 +259,108 @@ sub xpl_plug {
         $packet = "0048" . "000D6F0000" . uc($circle) . uc($msg->lastlog);
       }
 
-      if (defined $packet) {
-        $packet .= plugwise_crc ($packet); # Add CRC
-        $packet = "\05\05\03\03" . $packet; # Add header (crlf termination is handled by io handle)
-
-        $self->{_io}->write($packet);
-      }
+      # Send the packet to the stick!
+      $self->write_packet_to_stick($packet) if (defined $packet);
 
     }
   }
 
   return 1;
 }
+
+=head2 C<stick_init()>
+
+This function initializes the connection between the host and the stick. This needs to be called before 
+any other communication is initiated with the stick.
+
+=cut
+
+sub stick_init {
+
+  my $self = shift();
+  $self->write_packet_to_stick("000A");
+
+  return 1;
+}
+
+=head2 C<write_packet_to_stick(payload)>
+
+This function takes the payload for a packet that needs to be sent to the 
+USB stick, adds header and CRC and sends it to the stick.
+It also pushes a command on the 'packets_in_progress' list so that this 
+module can keep track of it when feedback is received.
+
+=cut
+
+sub write_packet_to_stick {
+  my ($self, $payload) = @_;
+
+  my $packet;
+ 
+  $packet = $payload;                 # Init command
+  $packet .= plugwise_crc ($packet);  # Add CRC
+
+  print "WR>STICK: $packet\n";
+
+  $packet = "\05\05\03\03" . $packet; # Add header (crlf termination is handled by io handle)
+
+  $self->{_io}->write($packet);
+
+  return 1;
+}
+
+sub plugwise_crc
+{
+  sprintf ("%04X", crc($_[0], 16, 0, 0, 0, 0x1021, 0));
+}
+
+sub plugwise_process_response
+{
+  my ($self, $frame) = @_;
+
+  $frame =~ s/(\n|.)*\x05\x05\x03\x03//g; # Strip header
+  $frame =~ s/(\r\n)$//; # Strip trailing CRLF
+
+  # Check if the CRC matches
+  if (! (plugwise_crc( substr($frame, 0, -4)) eq substr($frame, -4, 4))) {
+      print "Received invalid CRC in frame $frame\n";
+      return "";
+  }
+
+  # After a command is sent to the stick, we first receive an 'ACK'. This 'ACK' contains a sequence number that we want to track and notifies us of errors.
+  if ($frame =~ /^0000([[:xdigit:]]{4})([[:xdigit:]]{4})/) {
+  #      ack          |  seq. nr.     || response code |
+    if ($2 eq "00C1") {
+      $self->{_command_queue}->{hex($1)}->{received_ok} = 1;
+      return "";
+    } else {
+      print "Received response code with error: $frame\n";
+    }
+  }
+
+  if ($frame =~ /^0011([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})/) {
+  #     init response |  seq. nr.     || stick MAC addr || don't care    || network key    || short key
+    $self->{_plugwise}->{stick_MAC}   = $2;
+    $self->{_plugwise}->{network_key} = $4;
+    $self->{_plugwise}->{short_key}   = $5;
+    $self->{_plugwise}->{connected}   = 1;
+    # Delete entry in command queue
+    delete $self->{_command_queue}->{hex($1)};
+    return "";
+  }
+
+  # 28 = ON/OFF, 56 = Calibration info, 66 = Status info, 40 = powerinfo, 96 = powerbuf
+  #if ( (length($t) == 28) || (length($t) == 56) || (length($t) == 66) || (length($t) == 40) || (length($t) == 96))
+  #{
+  #    print "Got a valid response"
+  #} else {
+  #    print "Received invalid response $t\n";
+  #    return "";
+  #}
+}
+
+sub hex2int   { unpack("N", pack("H8", substr('0'x8 .$_[0], -8))) }
+
 
 1;
 __END__

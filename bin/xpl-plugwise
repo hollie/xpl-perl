@@ -18,16 +18,16 @@ xpl-plugwise - Perl script for an xPL Plugwise application
     --interface if0          - the interface for xPL messages (first
                                non-loopback or loopback)
     --plugwise-tty /dev/tty  - the serial device for the receiver
-    --plugwise-baud nnnn     - the baud rate for the receiver (115200)
 
-  # start the rfxcom-rx application on first ethernet interface in
+  # start the plugwise application on first ethernet interface in
   # verbose mode
-  xpl-rfxcom-rx --interface eth0 --verbose \
-                --rfxcom-verbose --rfxcom-rx <device>
+  xpl-plugwise --interface eth0 --verbose \
+                --plugwise-tty <device> 
 
 =head1 DESCRIPTION
 
-This script is an xPL client that interfaces with an Plugwise USB stick
+This script is an xPL client that interfaces with an Plugwise USB stick. The Plugwise network needs to 
+be running firmware version 2.34.
 
 =cut
 
@@ -56,10 +56,11 @@ Plugwise website: http://www.plugwise.com/
 =head1 AUTHOR
 
 Jfn, E<lt>pe1pqf@REMOVE_THISzonnet.nlE<gt>
+Lieven Hollevoet, E<lt>lieven@lika.beE<gt>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2007, 2008 by Jfn / Mark Hindess
+Copyright (C) 2007 - 2011 by Jfn / Mark Hindess / Lieven Hollevoet
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.7 or,
