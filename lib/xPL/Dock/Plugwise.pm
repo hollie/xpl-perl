@@ -96,6 +96,11 @@ sub init {
   # Init the buffer that will be used for serial data reception
   $self->{_uart_rx_buffer} = "";
 
+  # Init the read and write pointer in the plugwise message queue
+  $self->{_msg_queue}->{read_pointer}  = 0;
+  $self->{_msg_queue}->{write_pointer} = 0;
+  $self->{_msg_queue}->{resp_pointer}  = 0;
+
   # Send the init message to connect to the stick
   #$self->stick_init($io);
 
@@ -147,7 +152,7 @@ sub device_reader {
   my $result=$self->plugwise_process_response($frame); # Processes the received frame, this is done in another routine to split the Plugwise protocol implementation and the xPL packet generation
 
   print "QUEUE --------------------------\n";
-  print Dumper($self->{_command_queue});
+  print Dumper($self->{_response_queue});
   print "PLUGWISE STATUS ----------------\n";
   print Dumper($self->{_plugwise});
 
@@ -260,7 +265,7 @@ sub xpl_plug {
       }
 
       # Send the packet to the stick!
-      $self->write_packet_to_stick($packet) if (defined $packet);
+      $self->queue_packet_to_stick($packet, "Command") if (defined $packet);
 
     }
   }
@@ -278,7 +283,7 @@ any other communication is initiated with the stick.
 sub stick_init {
 
   my $self = shift();
-  $self->write_packet_to_stick("000A");
+  $self->queue_packet_to_stick("000A", "Init request");
 
   return 1;
 }
@@ -309,6 +314,41 @@ sub write_packet_to_stick {
   return 1;
 }
 
+sub queue_packet_to_stick {
+  my ($self, $packet, $description) = @_;
+  
+  my $writeptr = $self->{_msg_queue}->{write_pointer}++;
+  my $readptr  = $self->{_msg_queue}->{read_pointer};
+
+  $self->{_msg_queue}->{$writeptr}->{packet} = $packet;
+  $self->{_msg_queue}->{$writeptr}->{descr} = $description;
+ 
+  print "Queued packet to stick, the queue now look like this:\n";
+  print Dumper($self->{_msg_queue});
+
+  $self->process_queue();
+
+  return;
+}
+
+sub process_queue {
+  my ($self) = @_;
+
+  my $resptr = $self->{_msg_queue}->{resp_pointer};
+  my $readptr  = $self->{_msg_queue}->{read_pointer};
+  
+  if ($resptr == $readptr) {
+      $self->write_packet_to_stick($self->{_msg_queue}->{$readptr}->{packet});
+
+      delete $self->{_msg_queue}->{$readptr};
+
+      $self->{_msg_queue}->{read_pointer}++;
+  } else {
+      print "Process_queue: seems we're waiting for a response from a previous command";
+  }
+
+}
+
 sub plugwise_crc
 {
   sprintf ("%04X", crc($_[0], 16, 0, 0, 0, 0x1021, 0));
@@ -331,7 +371,7 @@ sub plugwise_process_response
   if ($frame =~ /^0000([[:xdigit:]]{4})([[:xdigit:]]{4})/) {
   #      ack          |  seq. nr.     || response code |
     if ($2 eq "00C1") {
-      $self->{_command_queue}->{hex($1)}->{received_ok} = 1;
+      $self->{_response_queue}->{hex($1)}->{received_ok} = 1;
       return "";
     } else {
       print "Received response code with error: $frame\n";
@@ -345,7 +385,9 @@ sub plugwise_process_response
     $self->{_plugwise}->{short_key}   = $5;
     $self->{_plugwise}->{connected}   = 1;
     # Delete entry in command queue
-    delete $self->{_command_queue}->{hex($1)};
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_msg_queue}->{resp_pointer}++;
     return "";
   }
 
