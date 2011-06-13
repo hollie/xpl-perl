@@ -97,9 +97,9 @@ sub init {
   $self->{_uart_rx_buffer} = "";
 
   # Init the read and write pointer in the plugwise message queue
-  $self->{_msg_queue}->{read_pointer}  = 0;
-  $self->{_msg_queue}->{write_pointer} = 0;
-  $self->{_msg_queue}->{resp_pointer}  = 0;
+  $self->{_read_pointer}  = 0;
+  $self->{_write_pointer} = 0;
+  $self->{_resp_pointer}  = 0;
 
   # Send the init message to connect to the stick
   #$self->stick_init($io);
@@ -136,86 +136,88 @@ sub device_reader {
 
   my $frame;
 
-  print "msg now looks like this: +++$msg+++\n";
+  # As long we have response packets in the received buffer, process them
+  while ($msg =~ /(\x05\x05\x03\x03\w+\r\n)(.+)/s) { # < we need 's' modifier here because we also want to match '\n' with the '.'
+      print "msg now looks like this: +++$msg+++\n";
 
-  # Check if we can find a response between the start of frame and end of frame
-  if ($msg =~ /(\x05\x05\x03\x03\w+\r\n)(.+)/){
       $frame = $1;
-      $self->{_uart_rx_buffer} = $2;
-      print "Found frame $frame - remaining: $2\n";
-  } else {
-      $self->{_uart_rx_buffer} = $msg;
-      print "UART RX buffer is now $self->{_uart_rx_buffer}\n";
-      return 1;
-  }
+      $msg = $self->{_uart_rx_buffer} = $2; # Cut the part we're going to process from the buffer
 
-  my $result=$self->plugwise_process_response($frame); # Processes the received frame, this is done in another routine to split the Plugwise protocol implementation and the xPL packet generation
+      print "Found frame $frame - remaining: $self->{_uart_rx_buffer}\n";
 
-  print "QUEUE --------------------------\n";
-  print Dumper($self->{_response_queue});
-  print "PLUGWISE STATUS ----------------\n";
-  print Dumper($self->{_plugwise});
+      # Processes the received frame, this is done in another routine to split the Plugwise protocol implementation and the xPL packet generation
+      my $result=$self->plugwise_process_response($frame); 
 
-  return 1 if ($result eq ""); # No packet received that needs an xPL message to be sent
-  print "Packet received: $result\n";
+      $self->print_stats("device_reader");
 
-  my %xplmsg = (
-                 message_type => 'xpl-trig',
-                 class => 'plugwise.basic',
-                 body => {},
-               );
+      next if ($result eq "no_xpl_message_required"); # No packet received that needs an xPL message to be sent
 
-  my $function_code = hex2int (substr($result, 0, 4)); # Function code
+      print "Packet received: '$result'\n";
 
-  if ($function_code == 0x0) { # Message is reponse to switching on/off a circle
-    $xplmsg{'body'}{'command'} = ((hex2int(substr($result, 4, 4)) & 0x2) >> 1) ? 'off' : 'on';
-    $xplmsg{'body'}{'device'}  = substr($result, 18, 6); # Macaddress
-    $xplmsg{'body'}{'onoff'} = ((hex2int(substr($result, 4, 4)) & 0x2) >> 1) ? 'off' : 'on';
-  }
+      my %xplmsg = (
+	  message_type => 'xpl-trig',
+          class => 'plugwise.basic',
+          body => {},
+      );
 
-  elsif ($function_code == 0x27) { # Message is reponse to calibrationinfo request
-    $xplmsg{'body'}{'command'} = 'calibrate';
-    $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
-    $xplmsg{'body'}{'gaina'}   = substr($result, 20, 8); # GainA
-    $xplmsg{'body'}{'gainb'}   = substr($result, 28, 8); # GainB
-    $xplmsg{'body'}{'offtot'}  = substr($result, 36, 8); # OffTot
-    $xplmsg{'body'}{'offruis'} = substr($result, 44, 8); # OffRuis
-  }
+      my $function_code = 0x66; #hex2int (substr($result, 0, 4)); # Function code
 
-  elsif ($function_code == 0x24) { # Message is response to status info request
-    $xplmsg{'body'}{'command'} = 'status';
-    $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
-    $xplmsg{'body'}{'abshour'} = substr($result, 20, 8); # Hours passed since 1-6-2007 00:00
-    $xplmsg{'body'}{'lastlog'} = substr($result, 28, 8); # Last log address available
-    $xplmsg{'body'}{'onoff'}   = hex2int(substr($result, 36,2)) ? 'on' : 'off';
-    $xplmsg{'body'}{'hwver'}   = substr($result, 40, 12); # HW version of the circle
-  }
+      if ($function_code == 0x0) { # Message is reponse to switching on/off a circle
+	  $xplmsg{'body'}{'command'} = ((hex2int(substr($result, 4, 4)) & 0x2) >> 1) ? 'off' : 'on';
+	  $xplmsg{'body'}{'device'}  = substr($result, 18, 6); # Macaddress
+	  $xplmsg{'body'}{'onoff'} = ((hex2int(substr($result, 4, 4)) & 0x2) >> 1) ? 'off' : 'on';
+      }
 
-  elsif ($function_code == 0x13) { # Message is response to power info request 
-    $xplmsg{'body'}{'command'}   = 'powerinfo';
-    $xplmsg{'body'}{'device'}    = substr($result, 14, 6); # Macaddress
-    $xplmsg{'body'}{'pulse8sec'} = substr($result, 20, 4); # Pulse information of 8 seconds reading
-    $xplmsg{'body'}{'pulse1sec'} = substr($result, 24, 4); # Pulse information of 1 second reading
-    $xplmsg{'body'}{'unknown'}   = substr($result, 28, 8); # Yet unknown what this means
-  }
+      elsif ($function_code == 0x27) { # Message is reponse to calibrationinfo request
+	  $xplmsg{'body'}{'command'} = 'calibrate';
+	  $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
+	  $xplmsg{'body'}{'gaina'}   = substr($result, 20, 8); # GainA
+	  $xplmsg{'body'}{'gainb'}   = substr($result, 28, 8); # GainB
+	  $xplmsg{'body'}{'offtot'}  = substr($result, 36, 8); # OffTot
+	  $xplmsg{'body'}{'offruis'} = substr($result, 44, 8); # OffRuis
+      }
 
-  elsif ($function_code == 0x49) { # Message is response to power buffer request
-    $xplmsg{'body'}{'command'}     = 'powerbuf';
-    $xplmsg{'body'}{'device'}      = substr($result, 14, 6); # Macaddress
-    $xplmsg{'body'}{'firstbuf'}    = substr($result, 20, 8); # Hour of 1st buffer (abshour format)
-    $xplmsg{'body'}{'firstpulse'}  = substr($result, 28, 8); # Usage in pulses 1st hour
-    $xplmsg{'body'}{'secondbuf'}   = substr($result, 36, 8); # Hour of 2nd buffer (abshour format)
-    $xplmsg{'body'}{'secondpulse'} = substr($result, 44, 8); # Usage in pulses 2nd hour
-    $xplmsg{'body'}{'thirdbuf'}    = substr($result, 52, 8); # Hour of 3rd buffer (abshour format)
-    $xplmsg{'body'}{'thirdpulse'}  = substr($result, 60, 8); # Usage in pulses 3rd hour
-    $xplmsg{'body'}{'fourthbuf'}   = substr($result, 68, 8); # Hour of 4th buffer (abshour format)
-    $xplmsg{'body'}{'fourthpulse'} = substr($result, 76, 8); # Usage in pulses 4th hour
-    $xplmsg{'body'}{'curlogaddr'}  = substr($result, 84, 8); # Log address of current buffer
-  }
-    
+      elsif ($function_code == 0x24) { # Message is response to status info request
+	  $xplmsg{'body'}{'command'} = 'status';
+	  $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
+	  $xplmsg{'body'}{'abshour'} = substr($result, 20, 8); # Hours passed since 1-6-2007 00:00
+	  $xplmsg{'body'}{'lastlog'} = substr($result, 28, 8); # Last log address available
+	  $xplmsg{'body'}{'onoff'}   = hex2int(substr($result, 36,2)) ? 'on' : 'off';
+	  $xplmsg{'body'}{'hwver'}   = substr($result, 40, 12); # HW version of the circle
+      }
+
+      elsif ($function_code == 0x13) { # Message is response to power info request 
+	  $xplmsg{'body'}{'command'}   = 'powerinfo';
+	  $xplmsg{'body'}{'device'}    = substr($result, 14, 6); # Macaddress
+	  $xplmsg{'body'}{'pulse8sec'} = substr($result, 20, 4); # Pulse information of 8 seconds reading
+	  $xplmsg{'body'}{'pulse1sec'} = substr($result, 24, 4); # Pulse information of 1 second reading
+	  $xplmsg{'body'}{'unknown'}   = substr($result, 28, 8); # Yet unknown what this means
+      }
+
+      elsif ($function_code == 0x49) { # Message is response to power buffer request
+	  $xplmsg{'body'}{'command'}     = 'powerbuf';
+	  $xplmsg{'body'}{'device'}      = substr($result, 14, 6); # Macaddress
+	  $xplmsg{'body'}{'firstbuf'}    = substr($result, 20, 8); # Hour of 1st buffer (abshour format)
+	  $xplmsg{'body'}{'firstpulse'}  = substr($result, 28, 8); # Usage in pulses 1st hour
+	  $xplmsg{'body'}{'secondbuf'}   = substr($result, 36, 8); # Hour of 2nd buffer (abshour format)
+	  $xplmsg{'body'}{'secondpulse'} = substr($result, 44, 8); # Usage in pulses 2nd hour
+	  $xplmsg{'body'}{'thirdbuf'}    = substr($result, 52, 8); # Hour of 3rd buffer (abshour format)
+	  $xplmsg{'body'}{'thirdpulse'}  = substr($result, 60, 8); # Usage in pulses 3rd hour
+	  $xplmsg{'body'}{'fourthbuf'}   = substr($result, 68, 8); # Hour of 4th buffer (abshour format)
+	  $xplmsg{'body'}{'fourthpulse'} = substr($result, 76, 8); # Usage in pulses 4th hour
+	  $xplmsg{'body'}{'curlogaddr'}  = substr($result, 84, 8); # Log address of current buffer
+      }
+
   #$xpl->send(%xplmsg);
+  }
 
-  return 1;
+  $self->print_stats("end og device reader");
+
+  # Check if we need to send another message to the stick, if there is a message left in the 
+  # message queue, send it out
+  $self->process_queue();
+  print "Falling out of device reader...\n";
+
 }
 
 
@@ -317,14 +319,13 @@ sub write_packet_to_stick {
 sub queue_packet_to_stick {
   my ($self, $packet, $description) = @_;
   
-  my $writeptr = $self->{_msg_queue}->{write_pointer}++;
-  my $readptr  = $self->{_msg_queue}->{read_pointer};
+  my $writeptr = $self->{_write_pointer}++;
+  my $readptr  = $self->{_read_pointer};
 
   $self->{_msg_queue}->{$writeptr}->{packet} = $packet;
   $self->{_msg_queue}->{$writeptr}->{descr} = $description;
  
-  print "Queued packet to stick, the queue now look like this:\n";
-  print Dumper($self->{_msg_queue});
+  $self->print_stats("queue_to_stick");
 
   $self->process_queue();
 
@@ -334,18 +335,40 @@ sub queue_packet_to_stick {
 sub process_queue {
   my ($self) = @_;
 
-  my $resptr = $self->{_msg_queue}->{resp_pointer};
-  my $readptr  = $self->{_msg_queue}->{read_pointer};
+  # If the queue it empty, return
+  if ((scalar keys %{$self->{_msg_queue}}) == 0) {
+      print "Processing empty queue, returning...\n";
+      return;
+  }
+
+  my $resptr = $self->{_resp_pointer};
+  my $readptr  = $self->{_read_pointer};
   
   if ($resptr == $readptr) {
       $self->write_packet_to_stick($self->{_msg_queue}->{$readptr}->{packet});
 
       delete $self->{_msg_queue}->{$readptr};
 
-      $self->{_msg_queue}->{read_pointer}++;
+      $self->{_read_pointer}++;
+
   } else {
-      print "Process_queue: seems we're waiting for a response from a previous command";
+      print "Process_queue: seems we're waiting for a response from a previous command\n";
   }
+
+  $self->print_stats("process_queue_end");
+
+}
+
+sub print_stats {
+    my ($self, $fname) = @_;
+    print "------- $fname -------------------------------\n";
+    print "Message queue is:\n";
+    print Dumper($self->{_msg_queue});
+    print "Response queue is: \n";
+    print Dumper($self->{_response_queue});
+    print "Plugwise connected status is $self->{_plugwise}->{connected}\n";
+    print "UART RX buffer is now '$self->{_uart_rx_buffer}'\n";
+    print "++++++++++++++++++++++++++++++++++++++\n";
 
 }
 
@@ -372,9 +395,12 @@ sub plugwise_process_response
   #      ack          |  seq. nr.     || response code |
     if ($2 eq "00C1") {
       $self->{_response_queue}->{hex($1)}->{received_ok} = 1;
-      return "";
+      return "no_xpl_message_required"; # We received ACK from stick, we should not send an xPL message out for this response
     } else {
       print "Received response code with error: $frame\n";
+      $self->{_response_queue}->{hex($1)}->{received_ok} = 0;
+      $self->{_response_queue}->{hex($1)}->{frame} = $frame;
+      
     }
   }
 
@@ -387,8 +413,8 @@ sub plugwise_process_response
     # Delete entry in command queue
     delete $self->{_response_queue}->{hex($1)};
     # Increment response counter
-    $self->{_msg_queue}->{resp_pointer}++;
-    return "";
+    $self->{_resp_pointer}++;
+    return "no_xpl_message_required";
   }
 
   # 28 = ON/OFF, 56 = Calibration info, 66 = Status info, 40 = powerinfo, 96 = powerbuf
