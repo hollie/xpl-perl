@@ -130,18 +130,21 @@ status of Circles that are switched on/off
 sub device_reader {
   my ($self, $handler, $new_msg, $last) = @_;
 
+  print "New message part received from UART: '$new_msg'\n";
+
   my $xpl = $self->xpl;
 
-  my $msg = $self->{_uart_rx_buffer} . $new_msg;
+  # Append newly received string to existing buffer
+  $self->{_uart_rx_buffer} .= $new_msg;
 
   my $frame;
 
+
   # As long we have response packets in the received buffer, process them
-  while ($msg =~ /(\x05\x05\x03\x03\w+\r\n)(.+)/s) { # < we need 's' modifier here because we also want to match '\n' with the '.'
-      print "msg now looks like this: +++$msg+++\n";
+  while ($self->{_uart_rx_buffer} =~ /(\x05\x05\x03\x03\w+\r\n)(.*)/s) { # < we need 's' modifier here because we also want to match '\n' with the '.'
 
       $frame = $1;
-      $msg = $self->{_uart_rx_buffer} = $2; # Cut the part we're going to process from the buffer
+      $self->{_uart_rx_buffer} = $2; # Cut the part we're going to process from the buffer
 
       print "Found frame $frame - remaining: $self->{_uart_rx_buffer}\n";
 
@@ -152,13 +155,16 @@ sub device_reader {
 
       next if ($result eq "no_xpl_message_required"); # No packet received that needs an xPL message to be sent
 
-      print "Packet received: '$result'\n";
-
       my %xplmsg = (
 	  message_type => 'xpl-trig',
-          class => 'plugwise.basic',
-          body => {},
+          schema => 'plugwise.basic',
+          body => @{$result},
       );
+
+      print Dumper(%xplmsg);
+
+      $xpl->send(%xplmsg);
+
 
       my $function_code = 0x66; #hex2int (substr($result, 0, 4)); # Function code
 
@@ -208,7 +214,6 @@ sub device_reader {
 	  $xplmsg{'body'}{'curlogaddr'}  = substr($result, 84, 8); # Log address of current buffer
       }
 
-  #$xpl->send(%xplmsg);
   }
 
   $self->print_stats("end og device reader");
@@ -264,6 +269,10 @@ sub xpl_plug {
       }
       elsif ($command eq 'powerbuf') {
         $packet = "0048" . "000D6F0000" . uc($circle) . uc($msg->lastlog);
+      }
+      elsif ($command eq 'debug') {
+
+	  return 1;
       }
 
       # Send the packet to the stick!
@@ -368,10 +377,22 @@ sub print_stats {
     print Dumper($self->{_response_queue});
     print "Plugwise connected status is $self->{_plugwise}->{connected}\n";
     print "UART RX buffer is now '$self->{_uart_rx_buffer}'\n";
+    print "Pointers: RD: $self->{_read_pointer} - RESP: $self->{_resp_pointer}\n";
     print "++++++++++++++++++++++++++++++++++++++\n";
 
 }
 
+sub print_uart_buffer {
+    my ($self) = @_;
+    
+    # Print the hex values in the serial RX string
+    my $string = $self->{_uart_rx_buffer};
+    $string =~ s/(.)/sprintf("%02x ",ord($1))/seg;
+    print "UART rx buffer now contains: '$string'\n";    
+
+    return;
+
+}
 sub plugwise_crc
 {
   sprintf ("%04X", crc($_[0], 16, 0, 0, 0, 0x1021, 0));
@@ -381,26 +402,36 @@ sub plugwise_process_response
 {
   my ($self, $frame) = @_;
 
+  my @xpl_body;
+
   $frame =~ s/(\n|.)*\x05\x05\x03\x03//g; # Strip header
   $frame =~ s/(\r\n)$//; # Strip trailing CRLF
 
   # Check if the CRC matches
   if (! (plugwise_crc( substr($frame, 0, -4)) eq substr($frame, -4, 4))) {
       print "Received invalid CRC in frame $frame\n";
+      # TODO handle this error state
       return "";
   }
 
+  # Strip CRC, we already know it is correct
+  $frame =~ s/(.{4}$)//;
+
   # After a command is sent to the stick, we first receive an 'ACK'. This 'ACK' contains a sequence number that we want to track and notifies us of errors.
-  if ($frame =~ /^0000([[:xdigit:]]{4})([[:xdigit:]]{4})/) {
+  if ($frame =~ /^0000([[:xdigit:]]{4})([[:xdigit:]]{4})$/) {
   #      ack          |  seq. nr.     || response code |
     if ($2 eq "00C1") {
       $self->{_response_queue}->{hex($1)}->{received_ok} = 1;
       return "no_xpl_message_required"; # We received ACK from stick, we should not send an xPL message out for this response
-    } else {
+    } elsif ($2 eq "00C2"){
+      # We sometimes get this reponse on the initial init request, re-init in this case
+      $self->write_packet_to_stick("000A");
+      return "no_xpl_message_required";
+    } else {  
       print "Received response code with error: $frame\n";
       $self->{_response_queue}->{hex($1)}->{received_ok} = 0;
       $self->{_response_queue}->{hex($1)}->{frame} = $frame;
-      
+      return "no_xpl_message_required";
     }
   }
 
@@ -417,6 +448,32 @@ sub plugwise_process_response
     return "no_xpl_message_required";
   }
 
+  if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
+  #     cmnd off resp|  seq. nr.     |    | plug MAC
+    @xpl_body = ['command' => 'off', 'device'  => substr($2, -6, 6), 'onoff'   => 'off'];
+    # Delete entry in command queue
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_resp_pointer}++;
+    return \@xpl_body;      
+  }
+
+  if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
+  #     cmnd on resp |  seq. nr.     |    | plug MAC
+    @xpl_body = ['command' => 'on', 'device'  => substr($2, -6, 6), 'onoff'   => 'on'];
+
+    # Delete entry in command queue
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_resp_pointer}++;
+    return \@xpl_body;      
+  }
+
+  # Temporary workaround while we're implementing the rest of the protocol
+  $self->{_resp_pointer}++;
+  print "Received unknown response: '$frame'\n";
+  return "no_xpl_message_required";
+
   # 28 = ON/OFF, 56 = Calibration info, 66 = Status info, 40 = powerinfo, 96 = powerbuf
   #if ( (length($t) == 28) || (length($t) == 56) || (length($t) == 66) || (length($t) == 40) || (length($t) == 96))
   #{
@@ -429,6 +486,17 @@ sub plugwise_process_response
 
 sub hex2int   { unpack("N", pack("H8", substr('0'x8 .$_[0], -8))) }
 
+sub query_connected_circles {
+
+    my $self = @_;
+
+    # In this code we will scan all connected circles to be able to add them to the $self->{_plugwise}->{circles} hash
+    my $index =0;
+
+    while ($index < 3) {
+	queue_packet_to_stick("");
+    }
+}
 
 1;
 __END__
