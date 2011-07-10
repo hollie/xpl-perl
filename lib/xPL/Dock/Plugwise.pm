@@ -223,6 +223,14 @@ sub device_reader {
 This is the callback that processes incoming xPL messages.  It handles
 the incoming plugwise.basic schema messages.
 
+Supported messages commands are:
+ * query_connected_circles : get a list of connected Circles, respond with their ID's
+
+Supported message commands with a device specifier are:
+ * on     : switch a circle on
+ * off    : switch a circle off
+ * status : request the current switch state, internal clock, live power consumption
+ 
 =cut
 
 sub xpl_plug {
@@ -237,12 +245,21 @@ sub xpl_plug {
 
 
   if (! $self->{_plugwise}->{connected}){
-    print "Not yet connect to stick, init first\n";
+    print "xpl_plug: Not yet connect to stick, init first\n";
     $self->stick_init();
   }
 
+  my $command = lc($msg->field('command'));
+
+  # Commands that have no specific device
+  if ($command eq 'query_connected_circles') {
+     $self->query_connected_circles();
+     return 1;
+  }
+
   if ($msg->field('device')) {
-    my $command = lc($msg->field('command'));
+    # Commands that target a specific device might need to be sent multiple times
+    # if multiple devices are defined
     foreach my $circle (split /,/, $msg->field('device')) {
       if ($command eq 'on') {
         $packet = "0017" . "000D6F0000" . uc($circle) . "01";
@@ -250,9 +267,11 @@ sub xpl_plug {
       elsif ($command eq 'off') {
         $packet = "0017" . "000D6F0000" . uc($circle) . "00";
       }
-      elsif ($command eq 'calibrate') {
-        $packet = "0026" . "000D6F0000" . uc($circle);
-      }
+      # Calibrate is no longer required -> handled by the query_connected_circles command
+      # all relevant info is stored in a local hash for power reading conversion
+      #elsif ($command eq 'calibrate') {
+      #  $packet = "0026" . "000D6F0000" . uc($circle);
+      #}
       elsif ($command eq 'status') {
         $packet = "0023" . "000D6F0000" . uc($circle);
       }
@@ -262,10 +281,6 @@ sub xpl_plug {
       elsif ($command eq 'powerbuf') {
         $packet = "0048" . "000D6F0000" . uc($circle) . uc($msg->lastlog);
       }
-      elsif ($command eq 'debug') {
-	  $self->query_connected_circles();
-	  return 1;
-      } 
       elsif ($command eq 'debug1') {
 	  print Dumper($self->{_plugwise});
       }
@@ -490,7 +505,7 @@ sub plugwise_process_response
     $self->{_resp_pointer}++;
     return "no_xpl_message_required" if ($4 ne '3F');
     print "Got last response, now sending the list!\n";
-    @xpl_body = ('command' => 'query_known_circles', 'test' => 'message');
+    @xpl_body = ('command' => 'query_connected_circles');
     my $count = 0;
     my $device_id;
 
@@ -501,6 +516,23 @@ sub plugwise_process_response
 
     # Required here, otherwise the message body is not accepted by the framework.
     @xpl_body = [@xpl_body];
+
+    return \@xpl_body;
+  }
+
+  # Process the response on a status request
+  if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{4})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
+  # status response  |  seq. nr.     ||  Circle+ MAC   || year          || month         || minutes       || curr_log_addr || powerstate
+    print "Received a status response";
+    my $saddr = $self->addr_l2s($2);
+    my $onoff = $7 eq '00'? 'off' : 'on';
+
+    @xpl_body = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff];
+
+    # Delete entry in command queue
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_resp_pointer}++;
 
     return \@xpl_body;
   }
@@ -561,7 +593,7 @@ sub query_connected_circles {
     # We first need to be connected to the stick else we don't know who to interrogate
     if (!$self->{_plugwise}->{connected}) {
 	$self->stick_init();
-	print "Was not connected to stick, connecting, retry later!\n";
+	print "Was not connected to stick, connecting, retry this command later!\n";
 	return;
     }
 
