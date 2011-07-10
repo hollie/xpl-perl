@@ -151,30 +151,22 @@ sub device_reader {
       # Processes the received frame, this is done in another routine to split the Plugwise protocol implementation and the xPL packet generation
       my $result=$self->plugwise_process_response($frame); 
 
-      $self->print_stats("device_reader");
+      #$self->print_stats("device_reader");
 
       next if ($result eq "no_xpl_message_required"); # No packet received that needs an xPL message to be sent
 
+      # For other $result values the result already contains the body of the xPL message
       my %xplmsg = (
 	  message_type => 'xpl-trig',
           schema => 'plugwise.basic',
           body => @{$result},
       );
 
-      print Dumper(%xplmsg);
-
       $xpl->send(%xplmsg);
-
 
       my $function_code = 0x66; #hex2int (substr($result, 0, 4)); # Function code
 
-      if ($function_code == 0x0) { # Message is reponse to switching on/off a circle
-	  $xplmsg{'body'}{'command'} = ((hex2int(substr($result, 4, 4)) & 0x2) >> 1) ? 'off' : 'on';
-	  $xplmsg{'body'}{'device'}  = substr($result, 18, 6); # Macaddress
-	  $xplmsg{'body'}{'onoff'} = ((hex2int(substr($result, 4, 4)) & 0x2) >> 1) ? 'off' : 'on';
-      }
-
-      elsif ($function_code == 0x27) { # Message is reponse to calibrationinfo request
+      if ($function_code == 0x27) { # Message is reponse to calibrationinfo request
 	  $xplmsg{'body'}{'command'} = 'calibrate';
 	  $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
 	  $xplmsg{'body'}{'gaina'}   = substr($result, 20, 8); # GainA
@@ -216,7 +208,7 @@ sub device_reader {
 
   }
 
-  $self->print_stats("end og device reader");
+  $self->print_stats("end of device reader");
 
   # Check if we need to send another message to the stick, if there is a message left in the 
   # message queue, send it out
@@ -241,7 +233,7 @@ sub xpl_plug {
 
   my $packet;
 
-  print Dumper($msg);
+  #print Dumper($msg);
 
 
   if (! $self->{_plugwise}->{connected}){
@@ -271,8 +263,11 @@ sub xpl_plug {
         $packet = "0048" . "000D6F0000" . uc($circle) . uc($msg->lastlog);
       }
       elsif ($command eq 'debug') {
-
+	  $self->query_connected_circles();
 	  return 1;
+      } 
+      elsif ($command eq 'debug1') {
+	  print Dumper($self->{_plugwise});
       }
 
       # Send the packet to the stick!
@@ -318,6 +313,9 @@ sub write_packet_to_stick {
 
   print "WR>STICK: $packet\n";
 
+  # Store the last message sent to the UART in a local variable so that we can report it in case of an error
+  $self->{_last_pkt_to_uart} = $packet;
+
   $packet = "\05\05\03\03" . $packet; # Add header (crlf termination is handled by io handle)
 
   $self->{_io}->write($packet);
@@ -334,7 +332,7 @@ sub queue_packet_to_stick {
   $self->{_msg_queue}->{$writeptr}->{packet} = $packet;
   $self->{_msg_queue}->{$writeptr}->{descr} = $description;
  
-  $self->print_stats("queue_to_stick");
+  #$self->print_stats("queue_to_stick");
 
   $self->process_queue();
 
@@ -364,7 +362,7 @@ sub process_queue {
       print "Process_queue: seems we're waiting for a response from a previous command\n";
   }
 
-  $self->print_stats("process_queue_end");
+  #$self->print_stats("process_queue_end");
 
 }
 
@@ -429,15 +427,22 @@ sub plugwise_process_response
       return "no_xpl_message_required";
     } else {  
       print "Received response code with error: $frame\n";
-      $self->{_response_queue}->{hex($1)}->{received_ok} = 0;
-      $self->{_response_queue}->{hex($1)}->{frame} = $frame;
-      return "no_xpl_message_required";
+      @xpl_body = [ 'type' => 'err', 'text' => "Received error response", 'message' => $self->{_last_pkt_to_uart}, 'error' => $2 ];
+
+      #$self->{_response_queue}->{hex($1)}->{received_ok} = 0;
+      #$self->{_response_queue}->{hex($1)}->{frame} = $frame;
+      # Increment response counter
+      delete $self->{_response_queue}->{hex($1)};
+      $self->{_resp_pointer}++;
+      
+      return \@xpl_body;
+
     }
   }
 
-  if ($frame =~ /^0011([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})/) {
   #     init response |  seq. nr.     || stick MAC addr || don't care    || network key    || short key
-    $self->{_plugwise}->{stick_MAC}   = $2;
+  if ($frame =~ /^0011([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})/) {
+    $self->{_plugwise}->{stick_MAC}   = substr($2, -6, 6);
     $self->{_plugwise}->{network_key} = $4;
     $self->{_plugwise}->{short_key}   = $5;
     $self->{_plugwise}->{connected}   = 1;
@@ -448,8 +453,8 @@ sub plugwise_process_response
     return "no_xpl_message_required";
   }
 
+  #   circle off resp|  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
-  #     cmnd off resp|  seq. nr.     |    | plug MAC
     @xpl_body = ['command' => 'off', 'device'  => substr($2, -6, 6), 'onoff'   => 'off'];
     # Delete entry in command queue
     delete $self->{_response_queue}->{hex($1)};
@@ -458,8 +463,8 @@ sub plugwise_process_response
     return \@xpl_body;      
   }
 
+  #   circle on resp |  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
-  #     cmnd on resp |  seq. nr.     |    | plug MAC
     @xpl_body = ['command' => 'on', 'device'  => substr($2, -6, 6), 'onoff'   => 'on'];
 
     # Delete entry in command queue
@@ -467,6 +472,54 @@ sub plugwise_process_response
     # Increment response counter
     $self->{_resp_pointer}++;
     return \@xpl_body;      
+  }
+
+  # Process the response on a query known circles command
+  # circle query resp|  seq. nr.     ||  Circle+ MAC   || Circle MAC on  || memory position
+  if ($frame =~/^0019([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{2})$/) {
+    # Store the node in the object
+    if ($3 ne "FFFFFFFFFFFFFFFF") {
+	$self->{_plugwise}->{circles}->{substr($3, -6, 6)} = {}; # Store the last 6 digits of the MAC address for later use
+	# And immediately queue a request for calibration info
+	$self->queue_packet_to_stick("0026".$3);
+    }
+      
+    # Delete entry in command queue
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_resp_pointer}++;
+    return "no_xpl_message_required" if ($4 ne '3F');
+    print "Got last response, now sending the list!\n";
+    @xpl_body = ('command' => 'query_known_circles', 'test' => 'message');
+    my $count = 0;
+    my $device_id;
+
+    foreach $device_id (keys %{$self->{_plugwise}->{circles}}){
+	my $device_string = sprintf("device%02i", $count++);
+	push @xpl_body, ($device_string => $device_id);
+    }
+
+    # Required here, otherwise the message body is not accepted by the framework.
+    @xpl_body = [@xpl_body];
+
+    return \@xpl_body;
+  }
+
+  # Process the response on a calibration request
+  if ($frame =~/^0027([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{8})$/){
+  # calibration resp |  seq. nr.     ||  Circle+ MAC   || gainA         || gainB         || offtot        || offruis
+    print "Received for $2 calibration response!\n";
+    my $saddr = $self->addr_l2s($2);
+    print "Short address  = $saddr\n";
+    $self->{_plugwise}->{circles}->{$saddr}->{gainA}   = $3;
+    $self->{_plugwise}->{circles}->{$saddr}->{gainB}   = $4;
+    $self->{_plugwise}->{circles}->{$saddr}->{offtot}  = $5;
+    $self->{_plugwise}->{circles}->{$saddr}->{offruis} = $6;
+    # Delete entry in command queue
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_resp_pointer}++;
+    return "no_xpl_message_required";      
   }
 
   # Temporary workaround while we're implementing the rest of the protocol
@@ -486,16 +539,59 @@ sub plugwise_process_response
 
 sub hex2int   { unpack("N", pack("H8", substr('0'x8 .$_[0], -8))) }
 
+# Interrogate the network coordinator (Circle+) for all connected Circles
+# This sub will generate the requests, and then the response parser function 
+# will generate a hash with all known circles
+# When a circle is detected, a calibration request is sent to ge the relevant info
+# required to calculate the power information.
+# Circle info goes into a global hash like this:
+#   $object->{_plugwise}->{circles}
+#      A single circle entry contains the short id and the following info:
+#         short_id => { gainA   => xxx,
+#                       gainB   => xxx,
+#                       offtot  => xxx,
+#                       offruis => xxx }  
 sub query_connected_circles {
 
-    my $self = @_;
+    my ($self) = @_;
 
     # In this code we will scan all connected circles to be able to add them to the $self->{_plugwise}->{circles} hash
-    my $index =0;
+    my $index = 0;
 
-    while ($index < 3) {
-	queue_packet_to_stick("");
+    # We first need to be connected to the stick else we don't know who to interrogate
+    if (!$self->{_plugwise}->{connected}) {
+	$self->stick_init();
+	print "Was not connected to stick, connecting, retry later!\n";
+	return;
     }
+
+    # Interrogate the Circle+ and add its info into the circles hash
+    $self->{_plugwise}->{coordinator_MAC} = $self->addr_l2s($self->{_plugwise}->{network_key});
+    $self->{_plugwise}->{circles} = {}; # Reset known circles hash
+    $self->{_plugwise}->{circles}->{$self->{_plugwise}->{coordinator_MAC}} = {}; # Add entry for Circle+
+    $self->queue_packet_to_stick("0026".$self->addr_s2l($self->{_plugwise}->{coordinator_MAC}), "Calibration request for Circle+");
+
+    #print "Going to interrogate $self->{_plugwise}->{coordinator_MAC} for known circles...\n";
+
+    while ($index < 64) {
+	my $strindex = sprintf("%02X", $index++);
+	my $packet   = "0018" . "000D6F0000" . $self->{_plugwise}->{coordinator_MAC} . $strindex;
+	$self->queue_packet_to_stick($packet, "Query connected device $strindex");
+    }
+
+    return;
+}
+
+# Convert the long Circle address notation to short
+sub addr_l2s {
+    my ($self,$address) = @_;
+    return substr($address, -6, 6);
+}
+
+# Convert the short Circle address notation to long
+sub addr_s2l {
+    my ($self,$address) = @_;
+    return "000D6F0000" . $address;
 }
 
 1;
@@ -512,6 +608,7 @@ Project website: http://www.xpl-perl.org.uk/
 =head1 AUTHOR
 
 Jfn, E<lt>pe1pqf@REMOVE_THISzonnet.nlE<gt>
+Hollie, E<lt>lieven@lika.beE<gt>
 
 =head1 COPYRIGHT
 
