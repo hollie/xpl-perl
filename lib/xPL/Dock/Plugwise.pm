@@ -373,6 +373,12 @@ sub process_queue {
 
       $self->{_read_pointer}++;
 
+  } elsif ($resptr > $readptr) {
+      print "It seems we received an extra message from the Stick\n";
+      # It happens once in a while that the Stick sends a message twice
+      # If this happens we decrement the resp_pointer so that we can keep track 
+      # if the processing of the queue.
+      $self->{_resp_pointer}--;
   } else {
       print "Process_queue: seems we're waiting for a response from a previous command\n";
   }
@@ -496,7 +502,7 @@ sub plugwise_process_response
     if ($3 ne "FFFFFFFFFFFFFFFF") {
 	$self->{_plugwise}->{circles}->{substr($3, -6, 6)} = {}; # Store the last 6 digits of the MAC address for later use
 	# And immediately queue a request for calibration info
-	$self->queue_packet_to_stick("0026".$3);
+	$self->queue_packet_to_stick("0026".$3, "Request calibration info");
     }
       
     # Delete entry in command queue
