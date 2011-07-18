@@ -257,6 +257,10 @@ sub xpl_plug {
      return 1;
   }
 
+  if ($command eq 'debug1') {
+      print Dumper($self->{_plugwise});
+  }
+
   if ($msg->field('device')) {
     # Commands that target a specific device might need to be sent multiple times
     # if multiple devices are defined
@@ -493,6 +497,32 @@ sub plugwise_process_response
     # Increment response counter
     $self->{_resp_pointer}++;
     return \@xpl_body;      
+
+  }
+
+  # Process the response on a powerinfo request
+  # powerinfo resp   |  seq. nr.     ||  Circle MAC    || pulse1        || pulse8        | other stuff we don't care about
+  if ($frame =~/^0013([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{4})/) {
+    my $saddr = $self->addr_l2s($2);
+    my $pulse1 = $3;
+    my $pulse8 = $4;
+
+    # Assign the values to the data hash
+    $self->{_plugwise}->{circles}->{$saddr}->{pulse1} = $pulse1;
+    $self->{_plugwise}->{circles}->{$saddr}->{pulse8} = $pulse8;
+
+    # Calculate the live power
+    my ($pow1, $pow8) = $self->calc_live_power($saddr);
+    
+    # Delete entry in command queue
+    delete $self->{_response_queue}->{hex($1)};
+    # Increment response counter
+    $self->{_resp_pointer}++;
+
+    
+    @xpl_body = ['command' => 'powerinfo', 'device'  => $saddr, 'power1'   => $pow1, 'power8' => $pow8];
+
+    return \@xpl_body;
   }
 
   # Process the response on a query known circles command
@@ -527,13 +557,16 @@ sub plugwise_process_response
   }
 
   # Process the response on a status request
-  if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{4})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
   # status response  |  seq. nr.     ||  Circle+ MAC   || year          || month         || minutes       || curr_log_addr || powerstate
-    print "Received a status response";
+  if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{4})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
     my $saddr = $self->addr_l2s($2);
     my $onoff = $7 eq '00'? 'off' : 'on';
+    $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
+    $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = hex($6) - 278528;
 
-    @xpl_body = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff];
+    print "Received a status response for $saddr, status=$onoff, logaddr=". $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . "\n";
+
+    @xpl_body = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'logaddr' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} ];
 
     # Delete entry in command queue
     delete $self->{_response_queue}->{hex($1)};
@@ -549,10 +582,10 @@ sub plugwise_process_response
     print "Received for $2 calibration response!\n";
     my $saddr = $self->addr_l2s($2);
     print "Short address  = $saddr\n";
-    $self->{_plugwise}->{circles}->{$saddr}->{gainA}   = $3;
-    $self->{_plugwise}->{circles}->{$saddr}->{gainB}   = $4;
-    $self->{_plugwise}->{circles}->{$saddr}->{offtot}  = $5;
-    $self->{_plugwise}->{circles}->{$saddr}->{offruis} = $6;
+    $self->{_plugwise}->{circles}->{$saddr}->{gainA}   = $self->hex2float($3);
+    $self->{_plugwise}->{circles}->{$saddr}->{gainB}   = $self->hex2float($4);
+    $self->{_plugwise}->{circles}->{$saddr}->{offtot}  = $self->hex2float($5);
+    $self->{_plugwise}->{circles}->{$saddr}->{offruis} = $self->hex2float($6);
     # Delete entry in command queue
     delete $self->{_response_queue}->{hex($1)};
     # Increment response counter
@@ -576,6 +609,49 @@ sub plugwise_process_response
 }
 
 sub hex2int   { unpack("N", pack("H8", substr('0'x8 .$_[0], -8))) }
+
+sub hex2float {
+    my ($self, $hexstr) = @_;
+
+    my $floater = unpack('f', reverse pack('H*', $hexstr));
+
+    return $floater;
+}
+
+sub pulsecorrection {
+    my ($self, $id) = @_;
+
+    my $value1 = hex($self->{_plugwise}->{circles}->{$id}->{pulse1});
+    my $value8 = hex($self->{_plugwise}->{circles}->{$id}->{pulse8})/8;
+
+    my $offnoise = $self->{_plugwise}->{circles}->{$id}->{offruis};
+    my $offtot   = $self->{_plugwise}->{circles}->{$id}->{offtot};
+    my $gainA    = $self->{_plugwise}->{circles}->{$id}->{gainA};
+    my $gainB    = $self->{_plugwise}->{circles}->{$id}->{gainB};
+
+    my $out1 = (($value1 + $offnoise) ^ 2) * $gainB + (($value1 + $offnoise ) * $gainA ) + $offtot;
+    my $out8 = (($value8 + $offnoise) ^ 2) * $gainB + (($value8 + $offnoise ) * $gainA ) + $offtot;
+
+    print "$offnoise - $offtot - $gainA - $gainB\n";
+    print "Pulses 1: $value1 - corrected: $out1\n";
+    print "Pulses 8: $value8 - corrected: $out8\n";
+
+    return ($out1, $out8);
+
+}
+sub calc_live_power {
+    my ($self, $id) =@_;
+
+    my ($pulse1, $pulse8) = $self->pulsecorrection($id);
+
+    my ($live1, $live8);
+
+    $live1 = $pulse1 * 1000 / 468.9385193;
+    $live8 = $pulse8 * 1000 / 468.9385193;
+
+    return ($live1, $live8);
+
+}
 
 # Interrogate the network coordinator (Circle+) for all connected Circles
 # This sub will generate the requests, and then the response parser function 
