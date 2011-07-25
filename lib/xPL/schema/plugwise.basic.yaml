@@ -15,7 +15,7 @@ types:
             - calibrate
             - powerinfo
             - powerbuf
-	    - query_connected_circles
+            - listcircles
       - name: device
         error: "It should be a comma-separated list of devices - e.g. '3FED03,3BCD89,3ACDFF'."
         validation: 
