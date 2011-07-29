@@ -71,6 +71,7 @@ sub init {
                         'The --plugwise-tty parameter is required', 1);
   $self->SUPER::init($xpl, @_);
 
+  # Create io handler
   my $io = $self->{_io} =
     xPL::IOHandler->new(xpl => $self->{_xpl}, verbose => $self->verbose,
                         device => $self->{_device},
@@ -114,7 +115,7 @@ Defines the vendor ID for the PlugWise plugin. Doesn't seem to propagate?
 =cut
 
 sub vendor_id {
-  'bnz'
+  'hollie'
 }
 
 =head2 C<device_reader()>
@@ -210,10 +211,18 @@ sub device_reader {
 
   $self->print_stats("end of device reader");
 
+  # It seems to happen that the Stick returns a confirmation message twice. In this case the response pointer 
+  # is bigger than the read pointer. Fix this else the queue processing fails
+  if ($self->{_resp_pointer} > $self->{_read_pointer}) {
+      $self->{_resp_pointer}--;
+      $self->info("internal: Received same message twice\n");
+  }
+
   # Check if we need to send another message to the stick, if there is a message left in the 
   # message queue, send it out
   $self->process_queue();
 
+  
   return 'a'; # We need to return something here, but we're not using that value. Fixme or check with beanz!
 
 }
@@ -371,13 +380,15 @@ sub process_queue {
 
       $self->{_read_pointer}++;
 
-  } elsif ($resptr > $readptr) {
-      $self->{_xpl}->info("internal: Received same message twice\n");
+  } #elsif ($resptr > $readptr) {
+    #  $self->{_xpl}->info("internal: Received same message twice\n");
       # It happens once in a while that the Stick sends a message twice
       # If this happens we decrement the resp_pointer so that we can keep track 
       # if the processing of the queue.
-      $self->{_resp_pointer}--;
-  } else {
+    #  $self->{_resp_pointer}--;
+      
+  #} 
+  else {
       print "Process_queue: seems we're waiting for a response from a previous command (rd: $readptr - resp: $resptr)\n" if ($self->{_ultraverbose}); 
   }
 
