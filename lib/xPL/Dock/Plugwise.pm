@@ -214,6 +214,7 @@ sub device_reader {
   # message queue, send it out
   $self->process_queue();
 
+  return 'a'; # We need to return something here, but we're not using that value. Fixme or check with beanz!
 
 }
 
