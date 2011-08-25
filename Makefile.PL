@@ -31,6 +31,7 @@ WriteMakefile(
                   'Date::Parse' => 0,
                   'AnyEvent' => 0,
                   'Digest::CRC' => 0,
+		  'Device::SerialPort' => 0
                 },
                ) : ()),
              );
