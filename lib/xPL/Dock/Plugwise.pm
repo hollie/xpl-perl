@@ -100,7 +100,6 @@ sub init {
   # Init the read and write pointer in the plugwise message queue
   $self->{_read_pointer}  = 0;
   $self->{_write_pointer} = 0;
-  $self->{_resp_pointer}  = 0;
 
   # Send the init message to connect to the stick
   #$self->stick_init($io);
@@ -210,13 +209,6 @@ sub device_reader {
   }
 
   $self->print_stats("end of device reader");
-
-  # It seems to happen that the Stick returns a confirmation message twice. In this case the response pointer 
-  # is bigger than the read pointer. Fix this else the queue processing fails
-  if ($self->{_resp_pointer} > $self->{_read_pointer}) {
-      $self->{_resp_pointer}--;
-      $self->info("internal: Received same message twice\n");
-  }
 
   # Check if we need to send another message to the stick, if there is a message left in the 
   # message queue, send it out
@@ -370,26 +362,19 @@ sub process_queue {
       return;
   }
 
-  my $resptr = $self->{_resp_pointer};
   my $readptr  = $self->{_read_pointer};
   
-  if ($resptr == $readptr) {
+  # If we're no longer waiting for a response (response queue is empty), the it is OK to send the next packet
+  if ((scalar keys %{$self->{_resp_queue}}) == 0) {
       $self->write_packet_to_stick($self->{_msg_queue}->{$readptr}->{packet});
 
       delete $self->{_msg_queue}->{$readptr};
 
       $self->{_read_pointer}++;
 
-  } #elsif ($resptr > $readptr) {
-    #  $self->{_xpl}->info("internal: Received same message twice\n");
-      # It happens once in a while that the Stick sends a message twice
-      # If this happens we decrement the resp_pointer so that we can keep track 
-      # if the processing of the queue.
-    #  $self->{_resp_pointer}--;
-      
-  #} 
+  }  
   else {
-      print "Process_queue: seems we're waiting for a response from a previous command (rd: $readptr - resp: $resptr)\n" if ($self->{_ultraverbose}); 
+      print "Process_queue: seems we're waiting for a response from a previous command (rd: $readptr)\n" if ($self->{_ultraverbose}); 
   }
 
   #$self->print_stats("process_queue_end");
@@ -408,7 +393,7 @@ sub print_stats {
     print Dumper($self->{_response_queue});
     print "Plugwise connected status is $self->{_plugwise}->{connected}\n";
     print "UART RX buffer is now '$self->{_uart_rx_buffer}'\n";
-    print "Pointers: RD: $self->{_read_pointer} - RESP: $self->{_resp_pointer}\n";
+    print "Pointers: RD: $self->{_read_pointer}";
     print "++++++++++++++++++++++++++++++++++++++\n";
 
 }
@@ -465,12 +450,7 @@ sub plugwise_process_response
     } else {  
       $xpl->ouch("Received response code with error: $frame\n");
       @xpl_body = [ 'type' => 'err', 'text' => "Received error response", 'message' => $self->{_last_pkt_to_uart}, 'error' => $2 ];
-
-      #$self->{_response_queue}->{hex($1)}->{received_ok} = 0;
-      #$self->{_response_queue}->{hex($1)}->{frame} = $frame;
-      # Increment response counter
       delete $self->{_response_queue}->{hex($1)};
-      $self->{_resp_pointer}++;
       
       return \@xpl_body;
 
@@ -479,14 +459,15 @@ sub plugwise_process_response
 
   #     init response |  seq. nr.     || stick MAC addr || don't care    || network key    || short key
   if ($frame =~ /^0011([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})/) {
+    # Extract info
     $self->{_plugwise}->{stick_MAC}   = substr($2, -6, 6);
     $self->{_plugwise}->{network_key} = $4;
     $self->{_plugwise}->{short_key}   = $5;
     $self->{_plugwise}->{connected}   = 1;
-    # Delete entry in command queue
+
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
+
     $xpl->info("PLUGWISE: Received a valid response to the init request from the Stick. Connected!\n");
     return "no_xpl_message_required";
   }
@@ -496,10 +477,8 @@ sub plugwise_process_response
     my $saddr = $self->addr_l2s($2);
     @xpl_body = ['command' => 'off', 'device'  => $saddr, 'onoff'   => 'off'];
 
-    # Delete entry in command queue
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
 
     $xpl->info("PLUGWISE: Stick reported Circle " . $saddr . " is OFF\n");
     return \@xpl_body;      
@@ -510,10 +489,8 @@ sub plugwise_process_response
     my $saddr = $self->addr_l2s($2);
     @xpl_body = ['command' => 'on', 'device'  => $saddr, 'onoff'   => 'on'];
 
-    # Delete entry in command queue
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
 
     $xpl->info("PLUGWISE: Stick reported Circle " . $saddr . " is ON\n");
     return \@xpl_body;      
@@ -533,11 +510,8 @@ sub plugwise_process_response
     # Calculate the live power
     my ($pow1, $pow8) = $self->calc_live_power($saddr);
     
-    # Delete entry in command queue
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
-
     
     @xpl_body = ['command' => 'powerinfo', 'device'  => $saddr, 'power1'   => $pow1, 'power8' => $pow8];
 
@@ -554,10 +528,9 @@ sub plugwise_process_response
 	$self->queue_packet_to_stick("0026".$3, "Request calibration info");
     }
       
-    # Delete entry in command queue
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
+
     return "no_xpl_message_required" if ($4 ne '3F');
 
     @xpl_body = ('command' => 'query_connected_circles');
@@ -587,10 +560,8 @@ sub plugwise_process_response
 
     @xpl_body = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'logaddr' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} ];
 
-    # Delete entry in command queue
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
 
     return \@xpl_body;
   }
@@ -605,15 +576,15 @@ sub plugwise_process_response
     $self->{_plugwise}->{circles}->{$saddr}->{gainB}   = $self->hex2float($4);
     $self->{_plugwise}->{circles}->{$saddr}->{offtot}  = $self->hex2float($5);
     $self->{_plugwise}->{circles}->{$saddr}->{offruis} = $self->hex2float($6);
-    # Delete entry in command queue
+
+    # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    # Increment response counter
-    $self->{_resp_pointer}++;
+
     return "no_xpl_message_required";      
   }
 
   # Temporary workaround while we're implementing the rest of the protocol
-  $self->{_resp_pointer}++;
+  #$self->{_resp_pointer}++;
   $xpl->ouch("Received unknown response: '$frame'");
   return "no_xpl_message_required";
 
