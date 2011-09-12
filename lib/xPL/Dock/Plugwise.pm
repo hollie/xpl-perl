@@ -100,6 +100,9 @@ sub init {
   # Set the state to 'unconnected' to stick, we need to init first!
   $self->{_plugwise}->{connected} = 0;
 
+  # Set the number of circles to query for listcircles command
+  $self->{_plugwise}->{list_circles_count} = 64;
+
   # Init the buffer that will be used for serial data reception
   $self->{_uart_rx_buffer} = "";
 
@@ -108,6 +111,8 @@ sub init {
   $self->{_write_pointer} = 0;
 
   $self->stick_init();
+
+  $self->{_awaiting_stick_response} = 0;
 
   return $self;
 }
@@ -134,6 +139,7 @@ sub device_reader {
 
   my $frame;
 
+  $self->{_awaiting_stick_response} = 0;
 
   # As long we have response packets in the received buffer, process them
   while ($self->{_uart_rx_buffer} =~ /(\x05\x05\x03\x03\w+\r\n)(.*)/s) { # < we need 's' modifier here because we also want to match '\n' with the '.'
@@ -212,7 +218,7 @@ This is the callback that processes incoming xPL messages.  It handles
 the incoming plugwise.basic schema messages.
 
 Supported messages commands are:
- * query_connected_circles : get a list of connected Circles, respond with their ID's
+ * listcircles : get a list of connected Circles, respond with their ID's
 
 Supported message commands with a device specifier are:
  * on     : switch a circle on
@@ -307,6 +313,9 @@ sub write_packet_to_stick {
 
   $self->{_io}->write($packet);
 
+  # Keep track of the fact that we sent a packet, we should now get a response
+  $self->{_awaiting_stick_response} = 1;
+
   return 1;
 }
 
@@ -319,7 +328,7 @@ sub queue_packet_to_stick {
   $self->{_msg_queue}->{$writeptr}->{packet} = $packet;
   $self->{_msg_queue}->{$writeptr}->{descr} = $description;
  
-  #$self->print_stats("queue_to_stick");
+  $self->print_stats("queue_to_stick");
 
   $self->process_queue();
 
@@ -337,14 +346,13 @@ sub process_queue {
 
   my $readptr  = $self->{_read_pointer};
   
-  # If we're no longer waiting for a response (response queue is empty), the it is OK to send the next packet
-  if ((scalar keys %{$self->{_resp_queue}}) == 0) {
+  # If we're no longer waiting for a response and the response queue is empty, the it is OK to send the next packet
+  if (!$self->{_awaiting_stick_response} and (scalar keys %{$self->{_resp_queue}}) == 0) {
       $self->write_packet_to_stick($self->{_msg_queue}->{$readptr}->{packet});
 
       delete $self->{_msg_queue}->{$readptr};
 
       $self->{_read_pointer}++;
-
   }  
   else {
       print "Process_queue: seems we're waiting for a response from a previous command (rd: $readptr)\n" if ($self->{_ultraverbose}); 
@@ -366,7 +374,8 @@ sub print_stats {
     print Dumper($self->{_response_queue});
     print "Plugwise connected status is $self->{_plugwise}->{connected}\n";
     print "UART RX buffer is now '$self->{_uart_rx_buffer}'\n";
-    print "Pointers: RD: $self->{_read_pointer}";
+    print "Pointers: RD: $self->{_read_pointer}\n";
+    print "Awaiting_response: $self->{_awaiting_stick_response}\n";
     print "++++++++++++++++++++++++++++++++++++++\n";
 
 }
@@ -504,9 +513,10 @@ sub plugwise_process_response
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
-    return "no_xpl_message_required" if ($4 ne '3F');
+    # Only when we have walked the complete list
+    return "no_xpl_message_required" if ($4 ne sprintf("%02X", $self->{_plugwise}->{list_circles_count} - 1));
 
-    @xpl_body = ('command' => 'query_connected_circles');
+    @xpl_body = ('command' => 'listcircles');
     my $count = 0;
     my $device_id;
 
@@ -641,8 +651,8 @@ sub query_connected_circles {
     $self->{_plugwise}->{circles}->{$self->{_plugwise}->{coordinator_MAC}} = {}; # Add entry for Circle+
     $self->queue_packet_to_stick("0026".$self->addr_s2l($self->{_plugwise}->{coordinator_MAC}), "Calibration request for Circle+");
 
-    # Interrogate the first 64 connected devices
-    while ($index < 64) {
+    # Interrogate the first x connected devices
+    while ($index < $self->{_plugwise}->{list_circles_count}) {
 	my $strindex = sprintf("%02X", $index++);
 	my $packet   = "0018" . "000D6F0000" . $self->{_plugwise}->{coordinator_MAC} . $strindex;
 	$self->queue_packet_to_stick($packet, "Query connected device $strindex");
@@ -679,6 +689,8 @@ Project website: http://www.xpl-perl.org.uk/
 When interrogating the Circle+ for known devices, only the first 64 devices 
 are requested. It is not clear if the firmware supports more, as there is 
 no official firmware specification.
+The number of devices requested can be increased by adapting 
+the 'list_circles_count' setting in the init function.
 
 =head1 AUTHOR
 
