@@ -34,6 +34,8 @@ use English qw/-no_match_vars/;
 
 use Fcntl;
 use IO::Socket::INET;
+use Device::SerialPort qw( :PARAM :STAT 0.07 );
+use Symbol qw(gensym);
 use Time::HiRes;
 use xPL::Base;
 use xPL::Queue;
@@ -106,12 +108,24 @@ sub device_open {
         or $self->argh("Unix domain socket connect to '$dev' failed: $!\n");
     } else {
       # TODO: use Device::SerialPort?
-      system("stty -F $dev ospeed $baud pass8 raw -echo >/dev/null") == 0 or
-        $self->argh("Setting serial port with stty failed: $!\n");
+      #system("stty -F $dev ospeed $baud pass8 raw -echo >/dev/null") == 0 or
+      #  $self->argh("Setting serial port with stty failed: $!\n");
+      
+      # Hollie: Replaced the 'todo' above with Device::Serialport because the stty fails on Mac OS X
+      $fh = gensym();
+      my $sport = tie (*$fh, 'Device::SerialPort', $dev) || $self->argh("Could not tie serial port to file handle: $!\n");
+      $sport->baudrate($baud);
+      $sport->databits(8);
+      $sport->parity("none");
+      $sport->stopbits(1);
+      $sport->datatype("raw");
+      $sport->write_settings();
+      
       sysopen($fh, $dev,O_RDWR|O_NOCTTY|O_NDELAY)
         or $self->argh("open of '$dev' failed: $!\n");
       $fh->autoflush(1);
-      binmode($fh);
+      #binmode($fh); # binmode not supported on Device::SerialPort
+      
     }
   } else {
     $dev .= ':'.($port||'10001') unless ($dev =~ /:/);
