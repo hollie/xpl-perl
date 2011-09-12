@@ -1,8 +1,5 @@
 #!/usr/bin/perl -w
 
-eval 'exec /usr/bin/perl -w -S $0 ${1+"$@"}'
-    if 0; # not running under some shell
-
 =head1 NAME
 
 xpl-plugwise - Perl script for an xPL Plugwise application
@@ -12,12 +9,12 @@ xpl-plugwise - Perl script for an xPL Plugwise application
   xpl-plugwise [flags] [options] --rfxcom-rx <device>
   where valid flags are:
     --help              - show this help text
-    --verbose           - verbose mode (for the xPL layer)
-    --plugwise-verbose  - verbose mode (for the Plugwise layer)
+    --verbose           - verbose mode 
+    --ultraverbose      - debugging verbose mode (internal status)
   and valid options are (default shown in brackets):
     --interface if0          - the interface for xPL messages (first
                                non-loopback or loopback)
-    --plugwise-tty /dev/tty  - the serial device for the receiver
+    --plugwise-tty /dev/tty  - the device for the receiver (serial or socket)
 
   # start the plugwise application on first ethernet interface in
   # verbose mode
@@ -43,7 +40,7 @@ END { defined $xpl && $xpl->send_hbeat_end(); }
 
 =head1 BUGS
 
-The status report message reported the onoff state incorrectly, fixed by Lieven Hollevoet on 20091002
+none
 
 =head1 SEE ALSO
 
