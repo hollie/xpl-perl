@@ -66,6 +66,9 @@ sub init {
   my $xpl = shift;
   my %p = @_;
 
+  # Override the default 'bnz' vendor id
+  $xpl->{_vendor_id} = "hollie";
+
   $self->required_field($xpl,
                         'device',
                         'The --plugwise-tty parameter is required', 1);
@@ -101,20 +104,7 @@ sub init {
   $self->{_read_pointer}  = 0;
   $self->{_write_pointer} = 0;
 
-  # Send the init message to connect to the stick
-  #$self->stick_init($io);
-
   return $self;
-}
-
-=head2 C<vendor_id()>
-
-Defines the vendor ID for the PlugWise plugin. Doesn't seem to propagate?
-
-=cut
-
-sub vendor_id {
-  'hollie'
 }
 
 =head2 C<device_reader()>
