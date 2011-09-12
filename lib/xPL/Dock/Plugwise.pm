@@ -12,11 +12,14 @@ xPL::Dock::Plugwise - xPL::Dock plugin for a Plugwise USB stick
 
 =head1 DESCRIPTION
 
-This L<xPL::Dock> plugin adds control of a Plugwise network through a Stick
+This L<xPL::Dock> plugin adds control of a Plugwise network through a Stick.
+Compatible with firmware version 2.37 of the Plugwise devices
 
 Current implemented functions:
 
 Switching ON/OFF of circles
+Query circles for their status
+Query the Circles+ for known circles
 
 =head1 METHODS
 
@@ -104,6 +107,8 @@ sub init {
   $self->{_read_pointer}  = 0;
   $self->{_write_pointer} = 0;
 
+  $self->stick_init();
+
   return $self;
 }
 
@@ -155,15 +160,6 @@ sub device_reader {
       $xpl->send(%xplmsg);
 
       my $function_code = 0x66; #hex2int (substr($result, 0, 4)); # Function code
-
-      # if ($function_code == 0x27) { # Message is reponse to calibrationinfo request
-      #     $xplmsg{'body'}{'command'} = 'calibrate';
-      #     $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
-      #     $xplmsg{'body'}{'gaina'}   = substr($result, 20, 8); # GainA
-      #     $xplmsg{'body'}{'gainb'}   = substr($result, 28, 8); # GainB
-      #     $xplmsg{'body'}{'offtot'}  = substr($result, 36, 8); # OffTot
-      #     $xplmsg{'body'}{'offruis'} = substr($result, 44, 8); # OffRuis
-      # }
 
       # elsif ($function_code == 0x24) { # Message is response to status info request
       #     $xplmsg{'body'}{'command'} = 'status';
@@ -233,18 +229,10 @@ sub xpl_plug {
   my $xpl = $self->{_xpl};
   my $packet;
 
-  #print Dumper($msg);
-
-
-  if (! $self->{_plugwise}->{connected}){
-    $xpl->info("internal: Not yet connect to stick, init first\n");
-    $self->stick_init();
-  }
-
   my $command = lc($msg->field('command'));
 
   # Commands that have no specific device
-  if ($command eq 'query_connected_circles') {
+  if ($command eq 'listcircles') {
      $self->query_connected_circles();
      return 1;
   }
@@ -259,11 +247,6 @@ sub xpl_plug {
       elsif ($command eq 'off') {
         $packet = "0017" . "000D6F0000" . uc($circle) . "00";
       }
-      # Calibrate is no longer required -> handled by the query_connected_circles command
-      # all relevant info is stored in a local hash for power reading conversion
-      #elsif ($command eq 'calibrate') {
-      #  $packet = "0026" . "000D6F0000" . uc($circle);
-      #}
       elsif ($command eq 'status') {
         $packet = "0023" . "000D6F0000" . uc($circle);
       }
@@ -293,7 +276,7 @@ any other communication is initiated with the stick.
 sub stick_init {
 
   my $self = shift();
-  $self->queue_packet_to_stick("000A", "Init request");
+  $self->write_packet_to_stick("000A");
 
   return 1;
 }
@@ -329,7 +312,7 @@ sub write_packet_to_stick {
 
 sub queue_packet_to_stick {
   my ($self, $packet, $description) = @_;
-  
+
   my $writeptr = $self->{_write_pointer}++;
   my $readptr  = $self->{_read_pointer};
 
@@ -652,21 +635,13 @@ sub query_connected_circles {
     # In this code we will scan all connected circles to be able to add them to the $self->{_plugwise}->{circles} hash
     my $index = 0;
 
-    # We first need to be connected to the stick else we don't know who to interrogate
-    if (!$self->{_plugwise}->{connected}) {
-	$self->stick_init();
-	$self->{_xpl}->info("internal: Was not connected to stick, connecting, retry this command later!\n");
-	return;
-    }
-
     # Interrogate the Circle+ and add its info into the circles hash
     $self->{_plugwise}->{coordinator_MAC} = $self->addr_l2s($self->{_plugwise}->{network_key});
     $self->{_plugwise}->{circles} = {}; # Reset known circles hash
     $self->{_plugwise}->{circles}->{$self->{_plugwise}->{coordinator_MAC}} = {}; # Add entry for Circle+
     $self->queue_packet_to_stick("0026".$self->addr_s2l($self->{_plugwise}->{coordinator_MAC}), "Calibration request for Circle+");
 
-    #print "Going to interrogate $self->{_plugwise}->{coordinator_MAC} for known circles...\n";
-
+    # Interrogate the first 64 connected devices
     while ($index < 64) {
 	my $strindex = sprintf("%02X", $index++);
 	my $packet   = "0018" . "000D6F0000" . $self->{_plugwise}->{coordinator_MAC} . $strindex;
@@ -699,14 +674,20 @@ None by default.
 
 Project website: http://www.xpl-perl.org.uk/
 
+=head1 LIMITATIONS
+
+When interrogating the Circle+ for known devices, only the first 64 devices 
+are requested. It is not clear if the firmware supports more, as there is 
+no official firmware specification.
+
 =head1 AUTHOR
 
 Jfn, E<lt>pe1pqf@REMOVE_THISzonnet.nlE<gt>
-Hollie, E<lt>lieven@lika.beE<gt>
+Lieven Hollevoet, E<lt>lieven@lika.beE<gt>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2005, 2009 by Mark Hindess / Jfn
+Copyright (C) 2005, 2011 by Mark Hindess / Jfn / Lieven Hollevoet
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.7 or,
