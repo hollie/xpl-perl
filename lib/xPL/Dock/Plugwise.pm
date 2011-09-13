@@ -139,8 +139,6 @@ sub device_reader {
 
   my $frame;
 
-  $self->{_awaiting_stick_response} = 0;
-
   # As long we have response packets in the received buffer, process them
   while ($self->{_uart_rx_buffer} =~ /(\x05\x05\x03\x03\w+\r\n)(.*)/s) { # < we need 's' modifier here because we also want to match '\n' with the '.'
 
@@ -433,11 +431,14 @@ sub plugwise_process_response
       $xpl->ouch("Received response code with error: $frame\n");
       @xpl_body = [ 'type' => 'err', 'text' => "Received error response", 'message' => $self->{_last_pkt_to_uart}, 'error' => $2 ];
       delete $self->{_response_queue}->{hex($1)};
-      
+      $self->{_awaiting_stick_response} = 0;
+    
       return \@xpl_body;
 
     }
   }
+
+  $self->{_awaiting_stick_response} = 0;
 
   #     init response |  seq. nr.     || stick MAC addr || don't care    || network key    || short key
   if ($frame =~ /^0011([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})/) {
