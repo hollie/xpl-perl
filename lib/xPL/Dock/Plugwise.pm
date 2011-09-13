@@ -101,7 +101,7 @@ sub init {
   $self->{_plugwise}->{connected} = 0;
 
   # Set the number of circles to query for listcircles command
-  $self->{_plugwise}->{list_circles_count} = 8;
+  $self->{_plugwise}->{list_circles_count} = 64;
 
   # Init the buffer that will be used for serial data reception
   $self->{_uart_rx_buffer} = "";
@@ -111,7 +111,7 @@ sub init {
   $self->{_write_pointer} = 0;
 
   $self->stick_init();
-
+  
   $self->{_awaiting_stick_response} = 0;
 
   return $self;
@@ -155,13 +155,7 @@ sub device_reader {
       next if ($result eq "no_xpl_message_required"); # No packet received that needs an xPL message to be sent
 
       # For other $result values the result already contains the body of the xPL message
-      my %xplmsg = (
-	  message_type => 'xpl-trig',
-          schema => 'plugwise.basic',
-          body => @{$result},
-      );
-
-      $xpl->send(%xplmsg);
+      $xpl->send(%{$result});
 
       my $function_code = 0x66; #hex2int (substr($result, 0, 4)); # Function code
 
@@ -254,11 +248,20 @@ sub xpl_plug {
       elsif ($command eq 'status') {
         $packet = "0023" . "000D6F0000" . uc($circle);
       }
-      elsif ($command eq 'powerinfo') {
+      elsif ($command eq 'livepower') {
+        # Ensure we have the calibration readings before we send the read command 
+        # because the processing of th response of the read command required the 
+        # calibration readings output to calculate the actual power
+        if (!defined($self->{_plugwise}->{circles}->{uc($circle)}->{offruis})) {
+            my $longaddr = $self->addr_s2l(uc($circle));
+            $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
+        }
         $packet = "0012" . "000D6F0000" . uc($circle);
       }
       elsif ($command eq 'powerbuf') {
         $packet = "0048" . "000D6F0000" . uc($circle) . uc($msg->lastlog);
+      } else {
+        $xpl->info("internal: Received invalid command '$command'\n");
       }
 
       # Send the packet to the stick!
@@ -399,7 +402,15 @@ sub plugwise_process_response
 {
   my ($self, $frame) = @_;
 
-  my @xpl_body;
+  #my @xpl_body;
+
+  # The default xpl message is a plugwise.basic trig, can be overwritten when required.
+  my %xplmsg = (
+      message_type => 'xpl-trig',
+      schema => 'plugwise.basic',
+      );
+
+
   my $xpl = $self->{_xpl};
 
   $frame =~ s/(\n|.)*\x05\x05\x03\x03//g; # Strip header
@@ -429,11 +440,12 @@ sub plugwise_process_response
       return "no_xpl_message_required";
     } else {  
       $xpl->ouch("Received response code with error: $frame\n");
-      @xpl_body = [ 'type' => 'err', 'text' => "Received error response", 'message' => $self->{_last_pkt_to_uart}, 'error' => $2 ];
+      # Todo: modify this so that a message.basic message is generated instead of a plugwise.basic
+      $xplmsg{body} = [ 'type' => 'err', 'text' => "Received error response", 'message' => $self->{_last_pkt_to_uart}, 'error' => $2 ];
       delete $self->{_response_queue}->{hex($1)};
       $self->{_awaiting_stick_response} = 0;
     
-      return \@xpl_body;
+      return \%xplmsg;
 
     }
   }
@@ -458,25 +470,25 @@ sub plugwise_process_response
   #   circle off resp|  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    @xpl_body = ['command' => 'off', 'device'  => $saddr, 'onoff'   => 'off'];
+     $xplmsg{body} = ['command' => 'off', 'device'  => $saddr, 'onoff'   => 'off'];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
     $xpl->info("PLUGWISE: Stick reported Circle " . $saddr . " is OFF\n");
-    return \@xpl_body;      
+    return \%xplmsg;      
   }
 
   #   circle on resp |  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    @xpl_body = ['command' => 'on', 'device'  => $saddr, 'onoff'   => 'on'];
+     $xplmsg{body} = ['command' => 'on', 'device'  => $saddr, 'onoff'   => 'on'];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
     $xpl->info("PLUGWISE: Stick reported Circle " . $saddr . " is ON\n");
-    return \@xpl_body;      
+    return \%xplmsg;      
   }
 
   # Process the response on a powerinfo request
@@ -495,10 +507,12 @@ sub plugwise_process_response
     
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
-    
-    @xpl_body = ['command' => 'powerinfo', 'device'  => $saddr, 'power1'   => $pow1, 'power8' => $pow8];
+    $xplmsg{message_type} = 'xpl-stat';
+    $xplmsg{body} = ['command' => 'livepower', 'device'  => $saddr, 'power1'   => $pow1, 'power8' => $pow8];
 
-    return \@xpl_body;
+    $xpl->info("PLUGWISE: Circle " . $saddr . " live power 1/8 is: $pow1/$pow8 W\n");
+
+    return \%xplmsg;
   }
 
   # Process the response on a query known circles command
@@ -517,7 +531,7 @@ sub plugwise_process_response
     # Only when we have walked the complete list
     return "no_xpl_message_required" if ($4 ne sprintf("%02X", $self->{_plugwise}->{list_circles_count} - 1));
 
-    @xpl_body = ('command' => 'listcircles');
+    my @xpl_body = ('command' => 'listcircles');
     my $count = 0;
     my $device_id;
 
@@ -526,10 +540,11 @@ sub plugwise_process_response
 	push @xpl_body, ($device_string => $device_id);
     }
 
-    # Required here, otherwise the message body is not accepted by the framework.
-    @xpl_body = [@xpl_body];
+    # Construct the complete xpl message
+    $xplmsg{body} = [@xpl_body];
+    $xplmsg{message_type} = 'xpl-stat';
 
-    return \@xpl_body;
+    return \%xplmsg;
   }
 
   # Process the response on a status request
@@ -539,15 +554,22 @@ sub plugwise_process_response
     my $onoff = $7 eq '00'? 'off' : 'on';
     $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
     $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = hex($6) - 278528;
+    
+    my $circle_date    = sprintf("%04i%02i%02i", 2000+hex($3), hex($4), int(hex($5)/60/24)+1); 
+    my $circle_time    = hex($5) % (60*24);
+    my $circle_hours   = int($circle_time/60);
+    my $circle_minutes = $circle_time % 60;
+    $circle_time       = sprintf("%02i%02i", $circle_hours, $circle_minutes);
 
-    $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . "\n");
+    $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . ", datetime=$circle_date$circle_time)\n");
 
-    @xpl_body = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'logaddr' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} ];
+    $xplmsg{message_type} = 'xpl-stat';
+    $xplmsg{body} = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'logaddr' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'date' => $circle_date, 'time' => $circle_time];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
-    return \@xpl_body;
+    return \%xplmsg;
   }
 
   # Process the response on a calibration request
@@ -584,8 +606,6 @@ sub plugwise_process_response
   #}
 }
 
-sub hex2int   { unpack("N", pack("H8", substr('0'x8 .$_[0], -8))) }
-
 sub hex2float {
     my ($self, $hexstr) = @_;
 
@@ -608,9 +628,9 @@ sub pulsecorrection {
     my $out1 = (($value1 + $offnoise) ^ 2) * $gainB + (($value1 + $offnoise ) * $gainA ) + $offtot;
     my $out8 = (($value8 + $offnoise) ^ 2) * $gainB + (($value8 + $offnoise ) * $gainA ) + $offtot;
 
-    print "$offnoise - $offtot - $gainA - $gainB\n";
-    print "Pulses 1: $value1 - corrected: $out1\n";
-    print "Pulses 8: $value8 - corrected: $out8\n";
+    #print "$offnoise - $offtot - $gainA - $gainB\n";
+    #print "Pulses 1: $value1 - corrected: $out1\n";
+    #print "Pulses 8: $value8 - corrected: $out8\n";
 
     return ($out1, $out8);
 
@@ -624,6 +644,10 @@ sub calc_live_power {
 
     $live1 = $pulse1 * 1000 / 468.9385193;
     $live8 = $pulse8 * 1000 / 468.9385193;
+
+    # Round
+    $live1 = int($live1*10)/10;
+    $live8 = int($live8*10)/10;
 
     return ($live1, $live8);
 
