@@ -101,7 +101,7 @@ sub init {
   $self->{_plugwise}->{connected} = 0;
 
   # Set the number of circles to query for listcircles command
-  $self->{_plugwise}->{list_circles_count} = 64;
+  $self->{_plugwise}->{list_circles_count} = 8;
 
   # Init the buffer that will be used for serial data reception
   $self->{_uart_rx_buffer} = "";
@@ -539,7 +539,7 @@ sub plugwise_process_response
     $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
     $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = hex($6) - 278528;
 
-    print "Received a status response for $saddr, status=$onoff, logaddr=". $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . "\n";
+    $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . "\n");
 
     @xpl_body = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'logaddr' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} ];
 
@@ -552,9 +552,11 @@ sub plugwise_process_response
   # Process the response on a calibration request
   if ($frame =~/^0027([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{8})$/){
   # calibration resp |  seq. nr.     ||  Circle+ MAC   || gainA         || gainB         || offtot        || offruis
-    print "Received for $2 calibration response!\n";
+    #print "Received for $2 calibration response!\n";
     my $saddr = $self->addr_l2s($2);
-    print "Short address  = $saddr\n";
+    #print "Short address  = $saddr\n";
+    $xpl->info("PLUGWISE: Received calibration reponse for circle $saddr\n");
+
     $self->{_plugwise}->{circles}->{$saddr}->{gainA}   = $self->hex2float($3);
     $self->{_plugwise}->{circles}->{$saddr}->{gainB}   = $self->hex2float($4);
     $self->{_plugwise}->{circles}->{$saddr}->{offtot}  = $self->hex2float($5);
