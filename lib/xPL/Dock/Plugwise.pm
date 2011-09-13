@@ -240,18 +240,22 @@ sub xpl_plug {
     # if multiple devices are defined
     foreach my $circle (split /,/, $msg->field('device')) {
       $circle = uc($circle);
-      if ($command eq 'on') {
+ 
+     if ($command eq 'on') {
         $packet = "0017" . "000D6F0000" . $circle . "01";
       }
+
       elsif ($command eq 'off') {
         $packet = "0017" . "000D6F0000" . $circle . "00";
       }
+
       elsif ($command eq 'status') {
         $packet = "0023" . "000D6F0000" . $circle;
       }
+
       elsif ($command eq 'livepower') {
         # Ensure we have the calibration readings before we send the read command 
-        # because the processing of th response of the read command required the 
+        # because the processing of the response of the read command required the 
         # calibration readings output to calculate the actual power
         if (!defined($self->{_plugwise}->{circles}->{$circle}->{offruis})) {
             my $longaddr = $self->addr_s2l($circle);
@@ -259,9 +263,20 @@ sub xpl_plug {
         }
         $packet = "0012" . "000D6F0000" . $circle;
       }
-      elsif ($command eq 'powerbuf') {
-        $packet = "0048" . "000D6F0000" . $circle . uc($msg->lastlog);
-      } else {
+
+      elsif ($command eq 'history') {
+        # Ensure we have the calibration readings before we send the read command 
+        # because the processing of the response of the read command required the 
+        # calibration readings output to calculate the actual power
+        if (!defined($self->{_plugwise}->{circles}->{$circle}->{offruis})) {
+            my $longaddr = $self->addr_s2l($circle);
+            $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
+        }
+        my $address = $msg->field('address') * 8 + 278528;
+        $packet = "0048" . "000D6F0000" . $circle . sprintf("%08X", $address);
+      } 
+
+      else {
         $xpl->info("internal: Received invalid command '$command'\n");
       }
 
@@ -549,23 +564,19 @@ sub plugwise_process_response
   }
 
   # Process the response on a status request
-  # status response  |  seq. nr.     ||  Circle+ MAC   || year          || month         || minutes       || curr_log_addr || powerstate
-  if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{4})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
+  # status response  |  seq. nr.     ||  Circle+ MAC   || year,mon, min || curr_log_addr || powerstate
+  if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
     my $saddr = $self->addr_l2s($2);
-    my $onoff = $7 eq '00'? 'off' : 'on';
+    my $onoff = $5 eq '00'? 'off' : 'on';
     $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
-    $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = hex($6) - 278528;
+    $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = (hex($4) - 278528) / 8;
     
-    my $circle_date    = sprintf("%04i%02i%02i", 2000+hex($3), hex($4), int(hex($5)/60/24)+1); 
-    my $circle_time    = hex($5) % (60*24);
-    my $circle_hours   = int($circle_time/60);
-    my $circle_minutes = $circle_time % 60;
-    $circle_time       = sprintf("%02i%02i", $circle_hours, $circle_minutes);
+    my $circle_date_time = $self->tstamp2time($3);
 
-    $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . ", datetime=$circle_date$circle_time)\n");
+    $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . ", datetime=$circle_date_time)\n");
 
     $xplmsg{message_type} = 'xpl-stat';
-    $xplmsg{body} = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'logaddr' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'date' => $circle_date, 'time' => $circle_time];
+    $xplmsg{body} = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'address' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'datetime' => $circle_date_time];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
@@ -592,19 +603,32 @@ sub plugwise_process_response
     return "no_xpl_message_required";      
   }
 
-  # Temporary workaround while we're implementing the rest of the protocol
-  #$self->{_resp_pointer}++;
+  # Process the response on a historic buffer readout
+  if ($frame =~/^0049([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{8})$/){
+  # history resp     |  seq. nr.     ||  Circle+ MAC   || info 1         || info 2         || info 3         || info 4         || address
+    my $s_id     = $self->addr_l2s($2);
+    my $log_addr = (hex($7) - 278528) / 8 ;  
+    print "Received history response for $2 and address $log_addr!\n";
+
+    # Assign the values to the data hash
+    $self->{_plugwise}->{circles}->{$s_id}->{history}->{logaddress} = $log_addr;
+    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info1} = $3;
+    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info2} = $4;
+    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info3} = $5;
+    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info4} = $6;
+
+    $self->report_history($s_id);
+
+    # Update the response_queue, remove the entry corresponding to this reply 
+    delete $self->{_response_queue}->{hex($1)};
+
+    return "no_xpl_message_required";
+  }
+
+  # We should not get here unless not all responses are implemented...
   $xpl->ouch("Received unknown response: '$frame'");
   return "no_xpl_message_required";
 
-  # 28 = ON/OFF, 56 = Calibration info, 66 = Status info, 40 = powerinfo, 96 = powerbuf
-  #if ( (length($t) == 28) || (length($t) == 56) || (length($t) == 66) || (length($t) == 40) || (length($t) == 96))
-  #{
-  #    print "Got a valid response"
-  #} else {
-  #    print "Received invalid response $t\n";
-  #    return "";
-  #}
 }
 
 sub hex2float {
@@ -616,35 +640,29 @@ sub hex2float {
 }
 
 sub pulsecorrection {
-    my ($self, $id) = @_;
+    my ($self, $id, $pulses) = @_;
 
-    my $value1 = hex($self->{_plugwise}->{circles}->{$id}->{pulse1});
-    my $value8 = hex($self->{_plugwise}->{circles}->{$id}->{pulse8})/8;
-
+    # Get the calibration values for the circle
     my $offnoise = $self->{_plugwise}->{circles}->{$id}->{offruis};
     my $offtot   = $self->{_plugwise}->{circles}->{$id}->{offtot};
     my $gainA    = $self->{_plugwise}->{circles}->{$id}->{gainA};
     my $gainB    = $self->{_plugwise}->{circles}->{$id}->{gainB};
 
-    my $out1 = (($value1 + $offnoise) ^ 2) * $gainB + (($value1 + $offnoise ) * $gainA ) + $offtot;
-    my $out8 = (($value8 + $offnoise) ^ 2) * $gainB + (($value8 + $offnoise ) * $gainA ) + $offtot;
+    # Correct the pulses with the calibration data
+    my $out = (($pulses + $offnoise) ^ 2) * $gainB + (($pulses + $offnoise ) * $gainA ) + $offtot;
 
-    #print "$offnoise - $offtot - $gainA - $gainB\n";
-    #print "Pulses 1: $value1 - corrected: $out1\n";
-    #print "Pulses 8: $value8 - corrected: $out8\n";
-
-    return ($out1, $out8);
+    return $out;
 
 }
 sub calc_live_power {
-    my ($self, $id) =@_;
+    my ($self, $id) = @_;
 
-    my ($pulse1, $pulse8) = $self->pulsecorrection($id);
-
-    my ($live1, $live8);
-
-    $live1 = $pulse1 * 1000 / 468.9385193;
-    $live8 = $pulse8 * 1000 / 468.9385193;
+    #my ($pulse1, $pulse8) = $self->pulsecorrection($id);
+    my $pulse1 = $self->pulsecorrection($id, hex($self->{_plugwise}->{circles}->{$id}->{pulse1}));
+    my $pulse8 = $self->pulsecorrection($id, hex($self->{_plugwise}->{circles}->{$id}->{pulse8})/8);
+    
+    my $live1 = $pulse1 * 1000 / 468.9385193;
+    my $live8 = $pulse8 * 1000 / 468.9385193;
 
     # Round
     $live1 = int($live1*10)/10;
@@ -653,6 +671,43 @@ sub calc_live_power {
     return ($live1, $live8);
 
 }
+
+sub report_history {
+    my ($self, $id) = @_;
+
+    # Get the first data entry
+    my $data = $self->{_plugwise}->{circles}->{$id}->{history}->{info1};
+
+    if ($data =~ /^([[:xdigit:]]{8})([[:xdigit:]]{8})$/){
+        # Calculate kWh
+        my $corrected_pulses = $self->pulsecorrection($id, hex($2));
+        my $energy = $corrected_pulses / 3600 / 468.9385193;
+        print "info1 date: " . $self->tstamp2time($1) . ", energy $energy kWh\n";
+    }
+    
+    
+}
+
+# Convert the packed time to xPL datetime
+sub tstamp2time {
+    my ($self, $tstamp) = @_;
+    
+    # Return empty time on empty timestamp
+    return "000000000000" if ($tstamp eq "FFFFFFFF");
+
+    # Convert
+    if ($tstamp =~ /([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{4})/){
+        my $circle_date    = sprintf("%04i%02i%02i", 2000+hex($1), hex($2), int(hex($3)/60/24)+1); 
+        my $circle_time    = hex($3) % (60*24);
+        my $circle_hours   = int($circle_time/60);
+        my $circle_minutes = $circle_time % 60;
+        $circle_time       = sprintf("%02i%02i", $circle_hours, $circle_minutes);
+        return $circle_date . $circle_time;
+    } else {
+        return "000000000000";
+    }
+}
+
 
 # Interrogate the network coordinator (Circle+) for all connected Circles
 # This sub will generate the requests, and then the response parser function 
