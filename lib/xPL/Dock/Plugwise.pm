@@ -239,27 +239,28 @@ sub xpl_plug {
     # Commands that target a specific device might need to be sent multiple times
     # if multiple devices are defined
     foreach my $circle (split /,/, $msg->field('device')) {
+      $circle = uc($circle);
       if ($command eq 'on') {
-        $packet = "0017" . "000D6F0000" . uc($circle) . "01";
+        $packet = "0017" . "000D6F0000" . $circle . "01";
       }
       elsif ($command eq 'off') {
-        $packet = "0017" . "000D6F0000" . uc($circle) . "00";
+        $packet = "0017" . "000D6F0000" . $circle . "00";
       }
       elsif ($command eq 'status') {
-        $packet = "0023" . "000D6F0000" . uc($circle);
+        $packet = "0023" . "000D6F0000" . $circle;
       }
       elsif ($command eq 'livepower') {
         # Ensure we have the calibration readings before we send the read command 
         # because the processing of th response of the read command required the 
         # calibration readings output to calculate the actual power
-        if (!defined($self->{_plugwise}->{circles}->{uc($circle)}->{offruis})) {
-            my $longaddr = $self->addr_s2l(uc($circle));
+        if (!defined($self->{_plugwise}->{circles}->{$circle}->{offruis})) {
+            my $longaddr = $self->addr_s2l($circle);
             $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
         }
-        $packet = "0012" . "000D6F0000" . uc($circle);
+        $packet = "0012" . "000D6F0000" . $circle;
       }
       elsif ($command eq 'powerbuf') {
-        $packet = "0048" . "000D6F0000" . uc($circle) . uc($msg->lastlog);
+        $packet = "0048" . "000D6F0000" . $circle . uc($msg->lastlog);
       } else {
         $xpl->info("internal: Received invalid command '$command'\n");
       }
