@@ -69,9 +69,6 @@ sub init {
   my $xpl = shift;
   my %p = @_;
 
-  # Override the default 'bnz' vendor id
-  $xpl->{_vendor_id} = "hollie";
-
   $self->required_field($xpl,
                         'device',
                         'The --plugwise-tty parameter is required', 1);
@@ -115,6 +112,16 @@ sub init {
   $self->{_awaiting_stick_response} = 0;
 
   return $self;
+}
+
+=head2 C<vendor_id()>
+
+Defines the vendor ID for the PlugWise plugin. Doesn't seem to propagate?
+
+=cut
+
+sub vendor_id {
+  'hollie'
 }
 
 =head2 C<device_reader()>
