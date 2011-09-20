@@ -30,8 +30,12 @@ WriteMakefile(
                   'Module::Pluggable' => 0,
                   'Date::Parse' => 0,
                   'AnyEvent' => 0,
+<<<<<<< HEAD
                   'Digest::CRC' => 0,
 		  'Device::SerialPort' => 0
+=======
+                  'Sub::Name' => 0,
+>>>>>>> ff820d50534d7997f689eb78a2dab97ebb2e47ba
                 },
                ) : ()),
              );
