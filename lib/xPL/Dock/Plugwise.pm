@@ -164,39 +164,6 @@ sub device_reader {
       # For other $result values the result already contains the body of the xPL message
       $xpl->send(%{$result});
 
-      my $function_code = 0x66; #hex2int (substr($result, 0, 4)); # Function code
-
-      # elsif ($function_code == 0x24) { # Message is response to status info request
-      #     $xplmsg{'body'}{'command'} = 'status';
-      #     $xplmsg{'body'}{'device'}  = substr($result, 14, 6); # Macaddress
-      #     $xplmsg{'body'}{'abshour'} = substr($result, 20, 8); # Hours passed since 1-6-2007 00:00
-      #     $xplmsg{'body'}{'lastlog'} = substr($result, 28, 8); # Last log address available
-      #     $xplmsg{'body'}{'onoff'}   = hex2int(substr($result, 36,2)) ? 'on' : 'off';
-      #     $xplmsg{'body'}{'hwver'}   = substr($result, 40, 12); # HW version of the circle
-      # }
-
-      # elsif ($function_code == 0x13) { # Message is response to power info request 
-      #     $xplmsg{'body'}{'command'}   = 'powerinfo';
-      #     $xplmsg{'body'}{'device'}    = substr($result, 14, 6); # Macaddress
-      #     $xplmsg{'body'}{'pulse8sec'} = substr($result, 20, 4); # Pulse information of 8 seconds reading
-      #     $xplmsg{'body'}{'pulse1sec'} = substr($result, 24, 4); # Pulse information of 1 second reading
-      #     $xplmsg{'body'}{'unknown'}   = substr($result, 28, 8); # Yet unknown what this means
-      # }
-
-      # elsif ($function_code == 0x49) { # Message is response to power buffer request
-      #     $xplmsg{'body'}{'command'}     = 'powerbuf';
-      #     $xplmsg{'body'}{'device'}      = substr($result, 14, 6); # Macaddress
-      #     $xplmsg{'body'}{'firstbuf'}    = substr($result, 20, 8); # Hour of 1st buffer (abshour format)
-      #     $xplmsg{'body'}{'firstpulse'}  = substr($result, 28, 8); # Usage in pulses 1st hour
-      #     $xplmsg{'body'}{'secondbuf'}   = substr($result, 36, 8); # Hour of 2nd buffer (abshour format)
-      #     $xplmsg{'body'}{'secondpulse'} = substr($result, 44, 8); # Usage in pulses 2nd hour
-      #     $xplmsg{'body'}{'thirdbuf'}    = substr($result, 52, 8); # Hour of 3rd buffer (abshour format)
-      #     $xplmsg{'body'}{'thirdpulse'}  = substr($result, 60, 8); # Usage in pulses 3rd hour
-      #     $xplmsg{'body'}{'fourthbuf'}   = substr($result, 68, 8); # Hour of 4th buffer (abshour format)
-      #     $xplmsg{'body'}{'fourthpulse'} = substr($result, 76, 8); # Usage in pulses 4th hour
-      #     $xplmsg{'body'}{'curlogaddr'}  = substr($result, 84, 8); # Log address of current buffer
-      # }
-
   }
 
   $self->print_stats("end of device reader");
@@ -404,18 +371,6 @@ sub print_stats {
 
 }
 
-#sub print_uart_buffer {
-#    my ($self) = @_;
-#    
-#    # Print the hex values in the serial RX string
-#    my $string = $self->{_uart_rx_buffer};
-#    $string =~ s/(.)/sprintf("%02x ",ord($1))/seg;
-#    print "UART rx buffer now contains: '$string'\n";    
-#
-#    return;
-#
-#}
-
 sub plugwise_crc
 {
   sprintf ("%04X", crc($_[0], 16, 0, 0, 0, 0x1021, 0));
@@ -615,7 +570,7 @@ sub plugwise_process_response
   # history resp     |  seq. nr.     ||  Circle+ MAC   || info 1         || info 2         || info 3         || info 4         || address
     my $s_id     = $self->addr_l2s($2);
     my $log_addr = (hex($7) - 278528) / 8 ;  
-    print "Received history response for $2 and address $log_addr!\n";
+    #print "Received history response for $2 and address $log_addr!\n";
 
     # Assign the values to the data hash
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{logaddress} = $log_addr;
@@ -624,15 +579,20 @@ sub plugwise_process_response
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{info3} = $5;
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{info4} = $6;
 
-    $self->report_history($s_id);
+    my ($tstamp, $energy) = $self->report_history($s_id);
 
+    $xplmsg{message_type} = 'xpl-stat';
+    $xplmsg{body} = ['device' => $s_id, 'type' => 'energy', 'current' => $energy, 'units' => 'kWh', 'datetime' => $tstamp];
+	
+	$xpl->info("PLUGWISE: Historic energy for $s_id"."[$log_addr] is $energy kWh on $tstamp\n");
+	
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
-    return "no_xpl_message_required";
+    return \%xplmsg;
   }
 
-  # We should not get here unless not all responses are implemented...
+  # We should not get here unless we receive responses that are not implemented...
   $xpl->ouch("Received unknown response: '$frame'");
   return "no_xpl_message_required";
 
@@ -685,13 +645,22 @@ sub report_history {
     # Get the first data entry
     my $data = $self->{_plugwise}->{circles}->{$id}->{history}->{info1};
 
+	my $energy = 0;
+	my $tstamp = 0;
+	
     if ($data =~ /^([[:xdigit:]]{8})([[:xdigit:]]{8})$/){
         # Calculate kWh
         my $corrected_pulses = $self->pulsecorrection($id, hex($2));
-        my $energy = $corrected_pulses / 3600 / 468.9385193;
-        print "info1 date: " . $self->tstamp2time($1) . ", energy $energy kWh\n";
+        $energy = $corrected_pulses / 3600 / 468.9385193;
+        $tstamp = $self->tstamp2time($1);
+    	
+    	# Don't report very low values below 1 Wh and round to 1 Wh
+    	$energy = int($energy * 1000)/1000;
+    	
+        #print "info1 date: $tstamp, energy $energy kWh\n";
     }
     
+    return ($tstamp, $energy);
     
 }
 
