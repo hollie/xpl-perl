@@ -20,6 +20,8 @@ Current implemented functions:
 Switching ON/OFF of circles
 Query circles for their status
 Query the Circles+ for known circles
+Retrieve the live power consumption of a Circle
+Readout the historic power consumption of a Circle (1-hour average)
 
 =head1 METHODS
 
@@ -39,7 +41,7 @@ our @ISA = qw(xPL::Dock::Plug);
 our %EXPORT_TAGS = ( 'all' => [ qw() ] );
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
 our @EXPORT = qw();
-our $VERSION = qw/$Revision$/[1];
+our $VERSION = "1.0";
 
 __PACKAGE__->make_readonly_accessor($_) foreach (qw/baud device/);
 
@@ -93,6 +95,15 @@ sub init {
                           class => 'plugwise',
                           class_type => 'basic',
                          });
+  # Add a callback to receive incoming control.basic messages
+  $xpl->add_xpl_callback(id => 'xpl-control', callback => \&xpl_control,
+      arguments => $self,
+      filter =>
+      {
+       message_type => 'xpl-cmnd',
+       class => 'control',
+       class_type => 'basic',
+      });
 
   # Set the state to 'unconnected' to stick, we need to init first!
   $self->{_plugwise}->{connected} = 0;
@@ -263,6 +274,53 @@ sub xpl_plug {
   return 1;
 }
 
+=head2 C<xpl_plug(%xpl_callback_parameters)>
+
+This is the callback that processes incoming xPL messages.  It handles
+the incoming control.basic schema messages.
+
+Supported message commands with a device specifier are:
+ * on     : switch a circle on
+ * off    : switch a circle off
+ * status : request the current switch state, internal clock, live power consumption
+ 
+=cut
+sub xpl_control {
+
+  my %p = @_;
+  my $msg = $p{message};
+  my $self = $p{arguments};
+  my $xpl = $self->{_xpl};
+  my $packet;
+
+  my $current = lc($msg->field('current'));
+
+  if ($msg->field('device')) {
+    # Commands that target a specific device might need to be sent multiple times
+    # if multiple devices are defined
+    foreach my $circle (split /,/, $msg->field('device')) {
+      $circle = uc($circle);
+ 
+     if ($current eq 'enable') {
+        $packet = "0017" . "000D6F0000" . $circle . "01";
+      }
+
+      elsif ($current eq 'disable') {
+        $packet = "0017" . "000D6F0000" . $circle . "00";
+      }
+
+      else {
+        $xpl->info("internal: Received invalid command '$current'\n");
+      }
+
+      # Send the packet to the stick!
+      $self->queue_packet_to_stick($packet, "Command") if (defined $packet);
+
+    }
+  }
+
+  return 1;
+}
 =head2 C<stick_init()>
 
 This function initializes the connection between the host and the stick. This needs to be called before 
@@ -448,7 +506,8 @@ sub plugwise_process_response
   #   circle off resp|  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-     $xplmsg{body} = ['command' => 'off', 'device'  => $saddr, 'onoff'   => 'off'];
+    $xplmsg{schema} = 'sensor.basic';
+    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'disable'];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
@@ -460,7 +519,8 @@ sub plugwise_process_response
   #   circle on resp |  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-     $xplmsg{body} = ['command' => 'on', 'device'  => $saddr, 'onoff'   => 'on'];
+    $xplmsg{schema} = 'sensor.basic';
+    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'enable'];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
