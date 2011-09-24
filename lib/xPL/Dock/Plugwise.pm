@@ -15,7 +15,7 @@ xPL::Dock::Plugwise - xPL::Dock plugin for a Plugwise USB stick
 This L<xPL::Dock> plugin adds control of a Plugwise network through a Stick.
 Compatible with firmware version 2.37 of the Plugwise devices
 
-Current implemented functions:
+Current implemented functions using the sensor.basic/control.basic schema:
 
 Switching ON/OFF of circles
 Query circles for their status
@@ -86,23 +86,24 @@ sub init {
                         ack_timeout_callback => 0.3,
                         output_record_type => 'xPL::IORecord::CRLFLine' );
 
-  # Add a callback to receive incoming xPL messages
-  $xpl->add_xpl_callback(id => 'xpl-plug', callback => \&xpl_plug,
-                         arguments => $self,
-                         filter =>
-                         {
-                          message_type => 'xpl-cmnd',
-                          class => 'plugwise',
-                          class_type => 'basic',
-                         });
   # Add a callback to receive incoming control.basic messages
-  $xpl->add_xpl_callback(id => 'xpl-control', callback => \&xpl_control,
+  $xpl->add_xpl_callback(id => 'control-basic', callback => \&xpl_control,
       arguments => $self,
       filter =>
       {
        message_type => 'xpl-cmnd',
        class => 'control',
        class_type => 'basic',
+      });
+
+  # Add a callback to receive incoming sensor.request messages
+  $xpl->add_xpl_callback(id => 'sensor-request', callback => \&xpl_sensor,
+      arguments => $self,
+      filter =>
+      {
+       message_type => 'xpl-cmnd',
+       class => 'sensor',
+       class_type => 'request',
       });
 
   # Set the state to 'unconnected' to stick, we need to init first!
@@ -125,7 +126,7 @@ sub init {
   return $self;
 }
 
-=head2 C<vendor_id()>
+=head2 C<vendor_id( )>
 
 Defines the vendor ID for the PlugWise plugin. Doesn't seem to propagate?
 
@@ -135,13 +136,10 @@ sub vendor_id {
   'hollie'
 }
 
-=head2 C<device_reader()>
+=head2 C<device_reader( )>
 
 This is the callback that processes output from the Plugwise USB stick.  It is
 responsible for sending out the xPL messages.
-
-Current implementation involves sending out confirmation messages about the
-status of Circles that are switched on/off
 
 =cut
 
@@ -165,10 +163,9 @@ sub device_reader {
 
       print "Found frame $frame - remaining: $self->{_uart_rx_buffer}\n" if ($self->{_ultraverbose});
 
-      # Processes the received frame, this is done in another routine to split the Plugwise protocol implementation and the xPL packet generation
+      # Processes the received frame, this is done in another routine to keep the protocol section separated from the hardware interfacing code
+      # This function will return either a message that tells not to send and xPL message, or an actual xPL message to be sent
       my $result=$self->plugwise_process_response($frame); 
-
-      #$self->print_stats("device_reader");
 
       next if ($result eq "no_xpl_message_required"); # No packet received that needs an xPL message to be sent
 
@@ -274,15 +271,13 @@ sub xpl_plug {
   return 1;
 }
 
-=head2 C<xpl_plug(%xpl_callback_parameters)>
+=head2 C<xpl_control(%xpl_callback_parameters)>
 
 This is the callback that processes incoming xPL messages.  It handles
-the incoming control.basic schema messages.
+the incoming control.basic and sensor.request schema messages.
 
-Supported message commands with a device specifier are:
- * on     : switch a circle on
- * off    : switch a circle off
- * status : request the current switch state, internal clock, live power consumption
+Supported message commands:
+ * enabling/disabling Circles
  
 =cut
 sub xpl_control {
@@ -321,7 +316,66 @@ sub xpl_control {
 
   return 1;
 }
-=head2 C<stick_init()>
+
+=head2 C<xpl_sensor(%xpl_callback_parameters)>
+
+This is the callback that processes incoming xPL messages.  It handles
+the incoming sensor.request schema messages.
+
+Supported message commands:
+ * requesting status (current switch state, internal clock)
+ * reading out power
+ * reading out energy over one-hour intervals
+
+ 
+=cut
+sub xpl_sensor {
+
+  my %p = @_;
+  my $msg = $p{message};
+  my $self = $p{arguments};
+  my $xpl = $self->{_xpl};
+  my $packet;
+
+  if ($msg->field('device')) {
+    # Commands that target a specific device might need to be sent multiple times
+    # if multiple devices are defined
+    if (!defined $msg->field('request')){
+      return;
+    }
+    my $request = $msg->field('request');
+
+    foreach my $circle (split /,/, $msg->field('device')) {
+      $circle = uc($circle);
+ 
+      if ($request eq 'output' || $request eq 'current') {
+	$packet = "0023" . "000D6F0000" . $circle;
+      } 
+      elsif ($request eq 'power') {
+        # Ensure we have the calibration readings before we send the read command 
+        # because the processing of the response of the read command requires the 
+        # calibration readings output to calculate the actual power
+        if (!defined($self->{_plugwise}->{circles}->{$circle}->{offruis})) {
+            my $longaddr = $self->addr_s2l($circle);
+            $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
+        }
+        $packet = "0012" . "000D6F0000" . $circle;	  
+      }
+      
+      else {
+        $xpl->info("internal: Received invalid request '$request'\n");
+      }
+
+      # Send the packet to the stick!
+      $self->queue_packet_to_stick($packet, "sensor.basic") if (defined $packet);
+
+    }
+  }
+
+  return 1;
+}
+
+=head2 C<stick_init( )>
 
 This function initializes the connection between the host and the stick. This needs to be called before 
 any other communication is initiated with the stick.
@@ -368,6 +422,16 @@ sub write_packet_to_stick {
   return 1;
 }
 
+=head2 C<queue_packet_to_stick($packet, $description_string)>
+
+This function is the default function to call in case a message needs to be sent to the USB stick.
+It pushes the message on the message queue where it will be sent from when
+all previous messages are sent and a response has been received for.
+
+This is required because otherwise the USB stick can be flooded with commands.
+
+=cut
+
 sub queue_packet_to_stick {
   my ($self, $packet, $description) = @_;
 
@@ -375,7 +439,7 @@ sub queue_packet_to_stick {
   my $readptr  = $self->{_read_pointer};
 
   $self->{_msg_queue}->{$writeptr}->{packet} = $packet;
-  $self->{_msg_queue}->{$writeptr}->{descr} = $description;
+  $self->{_msg_queue}->{$writeptr}->{type} = $description;
  
   $self->print_stats("queue_to_stick");
 
@@ -384,6 +448,15 @@ sub queue_packet_to_stick {
   return;
 }
 
+=head2 C<process_queue( )>
+
+This function is the default function to call in case a message needs to be sent to the USB stick.
+It pushes the message on the message queue where it will be sent from when
+all previous messages are sent and a response has been received for.
+
+This is required because otherwise the USB stick can be flooded with commands.
+
+=cut
 sub process_queue {
   my ($self) = @_;
 
@@ -396,9 +469,10 @@ sub process_queue {
   my $readptr  = $self->{_read_pointer};
   
   # If we're no longer waiting for a response and the response queue is empty, the it is OK to send the next packet
-  if (!$self->{_awaiting_stick_response} and (scalar keys %{$self->{_resp_queue}}) == 0) {
+  if (!$self->{_awaiting_stick_response}) {
       $self->write_packet_to_stick($self->{_msg_queue}->{$readptr}->{packet});
-
+      # We need to keep track of the type of message so that we can determine what type of response we need to send later
+      $self->{_response_queue}->{last_type} = $self->{_msg_queue}->{$readptr}->{type};
       delete $self->{_msg_queue}->{$readptr};
 
       $self->{_read_pointer}++;
@@ -407,9 +481,16 @@ sub process_queue {
       print "Process_queue: seems we're waiting for a response from a previous command (rd: $readptr)\n" if ($self->{_ultraverbose}); 
   }
 
-  #$self->print_stats("process_queue_end");
-
 }
+
+=head2 C<print_stats($name )>
+
+This is a helper function that displays internal status when the option 
+'ultraverbose' is set. 
+
+Only required for debugging.
+
+=cut
 
 sub print_stats {
     my ($self, $fname) = @_;
@@ -429,10 +510,30 @@ sub print_stats {
 
 }
 
+=head2 C<plugwise_crc($string)>
+
+This is a helper function that returns the CRC for communication with the USB stick.
+
+TODO: convert this to a real function of the class.
+
+=cut
+
 sub plugwise_crc
 {
   sprintf ("%04X", crc($_[0], 16, 0, 0, 0, 0x1021, 0));
 }
+
+=head2 C<plugwise_process_response($frame)>
+
+This function processes a response received from the USB stick.
+
+In a first step, the ACK response from the stick is handled. This means that the
+communication sequence number is captured, and a new entry is made in the response queue.
+
+Second step, if we receive an error response from the stick, generate a
+notification message using the log.basic schema
+
+=cut
 
 sub plugwise_process_response
 {
@@ -456,8 +557,10 @@ sub plugwise_process_response
 
   # Check if the CRC matches
   if (! (plugwise_crc( substr($frame, 0, -4)) eq substr($frame, -4, 4))) {
-      # This is an error to die for...
-      $xpl->argh("PLUGWISE: received a frame with an invalid CRC");
+      # Send out notification...
+      $xpl->ouch("PLUGWISE: received a frame with an invalid CRC");
+      $xplmsg{schema} = 'log.basic';
+      $xplmsg{body} = [ 'type' => 'err', 'text' => "Received frame with invalid CRC", 'code' => $frame ];
       return "";
   }
 
@@ -469,6 +572,7 @@ sub plugwise_process_response
   #      ack          |  seq. nr.     || response code |
     if ($2 eq "00C1") {
       $self->{_response_queue}->{hex($1)}->{received_ok} = 1;
+      $self->{_response_queue}->{hex($1)}->{type} = $self->{_response_queue}->{last_type};
       return "no_xpl_message_required"; # We received ACK from stick, we should not send an xPL message out for this response
     } elsif ($2 eq "00C2"){
       # We sometimes get this reponse on the initial init request, re-init in this case
@@ -476,8 +580,8 @@ sub plugwise_process_response
       return "no_xpl_message_required";
     } else {  
       $xpl->ouch("Received response code with error: $frame\n");
-      # Todo: modify this so that a message.basic message is generated instead of a plugwise.basic
-      $xplmsg{body} = [ 'type' => 'err', 'text' => "Received error response", 'message' => $self->{_last_pkt_to_uart}, 'error' => $2 ];
+      $xplmsg{schema} = 'log.basic';
+      $xplmsg{body} = [ 'type' => 'err', 'text' => "Received error response", 'code' => $self->{_last_pkt_to_uart} . ":" . $2 ];
       delete $self->{_response_queue}->{hex($1)};
       $self->{_awaiting_stick_response} = 0;
     
@@ -507,7 +611,7 @@ sub plugwise_process_response
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
     $xplmsg{schema} = 'sensor.basic';
-    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'disable'];
+    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'LOW'];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
@@ -520,7 +624,7 @@ sub plugwise_process_response
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
     $xplmsg{schema} = 'sensor.basic';
-    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'enable'];
+    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'HIGH'];
 
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
@@ -545,8 +649,11 @@ sub plugwise_process_response
     
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
+
+    # Create the corresponding xPL message
     $xplmsg{message_type} = 'xpl-stat';
-    $xplmsg{body} = ['command' => 'livepower', 'device'  => $saddr, 'power1'   => $pow1, 'power8' => $pow8];
+    $xplmsg{schema}       = 'sensor.basic';
+    $xplmsg{body} = ['device'  => $saddr, 'type' => 'power', 'current' => $pow1/1000, 'current8' => $pow8/1000, 'units' => 'kW'];
 
     $xpl->info("PLUGWISE: Circle " . $saddr . " live power 1/8 is: $pow1/$pow8 W\n");
 
@@ -590,16 +697,23 @@ sub plugwise_process_response
   if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
     my $saddr = $self->addr_l2s($2);
     my $onoff = $5 eq '00'? 'off' : 'on';
+    my $current = $5 eq '00' ? 'LOW' : 'HIGH';
     $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
     $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = (hex($4) - 278528) / 8;
-    
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+
     my $circle_date_time = $self->tstamp2time($3);
 
     $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . ", datetime=$circle_date_time)\n");
 
-    $xplmsg{message_type} = 'xpl-stat';
-    $xplmsg{body} = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'address' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'datetime' => $circle_date_time];
-
+    if ($msg_type eq 'sensor.basic') {
+	$xplmsg{schema} = $msg_type;
+	$xplmsg{message_type} = 'xpl-stat';
+	$xplmsg{body} = ['device' => $saddr, 'type' => 'output', 'current' => $current];
+    } else {
+	$xplmsg{message_type} = 'xpl-stat';
+	$xplmsg{body} = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'address' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'datetime' => $circle_date_time];
+    }
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
