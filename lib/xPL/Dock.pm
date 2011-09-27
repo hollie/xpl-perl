@@ -113,6 +113,7 @@ sub new {
   }
 
   my $vendor_id = 'bnz';
+  my $vendor_rev;
   my @getopts;
   my @plugin_instances;
   foreach my $module (@plugins) {
@@ -120,9 +121,12 @@ sub new {
     push @plugin_instances, $instance;
     push @getopts, $instance->getopts;
     $vendor_id = $instance->vendor_id if ($instance->can('vendor_id'));
+    $vendor_rev = $instance->vendor_rev if ($instance->can('vendor_rev'));
   }
 
   my %args = ( vendor_id => $vendor_id, device_id => $name, );
+  $args{'vendor_rev'} = $vendor_rev if ($vendor_rev);
+
   my %opt = ();
   my $verbose;
   my $interface;

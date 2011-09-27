@@ -128,12 +128,23 @@ sub init {
 
 =head2 C<vendor_id( )>
 
-Defines the vendor ID for the PlugWise plugin. Doesn't seem to propagate?
+Defines the vendor ID for the PlugWise plugin. 
 
 =cut
 
 sub vendor_id {
   'hollie'
+}
+
+=head2 C<vendor_rev( )>
+
+Defines the vendor revision for the PlugWise plugin. This number will be
+reported in the hbeat messages
+
+=cut
+
+sub vendor_rev {
+  '0.9'
 }
 
 =head2 C<device_reader( )>
