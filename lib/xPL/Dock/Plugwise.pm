@@ -86,6 +86,16 @@ sub init {
                         ack_timeout_callback => 0.3,
                         output_record_type => 'xPL::IORecord::CRLFLine' );
 
+  # Add a callback to receive incoming plugwise.basic messages
+  $xpl->add_xpl_callback(id => 'plugwise-basic', callback => \&xpl_plugwise,
+      arguments => $self,
+      filter =>
+      {
+       message_type => 'xpl-cmnd',
+       class => 'plugwise',
+       class_type => 'basic',
+      });
+  
   # Add a callback to receive incoming control.basic messages
   $xpl->add_xpl_callback(id => 'control-basic', callback => \&xpl_control,
       arguments => $self,
@@ -197,10 +207,10 @@ sub device_reader {
 }
 
 
-=head2 C<xpl_plug(%xpl_callback_parameters)>
+=head2 C<xpl_plugwise(%xpl_callback_parameters)>
 
-This is the callback that processes incoming xPL messages.  It handles
-the incoming plugwise.basic schema messages.
+This is the callback that processes incoming xPL messages using the schema
+plugwise.basic.
 
 Supported messages commands are:
  * listcircles : get a list of connected Circles, respond with their ID's
@@ -209,10 +219,12 @@ Supported message commands with a device specifier are:
  * on     : switch a circle on
  * off    : switch a circle off
  * status : request the current switch state, internal clock, live power consumption
+ * livepower: request the current power measured by the Circle
+ * history: request the energy consumption for a specific logaddress
  
 =cut
 
-sub xpl_plug {
+sub xpl_plugwise {
 
   my %p = @_;
   my $msg = $p{message};
@@ -274,7 +286,7 @@ sub xpl_plug {
       }
 
       # Send the packet to the stick!
-      $self->queue_packet_to_stick($packet, "Command") if (defined $packet);
+      $self->queue_packet_to_stick($packet, "plugwise.basic") if (defined $packet);
 
     }
   }
@@ -285,7 +297,7 @@ sub xpl_plug {
 =head2 C<xpl_control(%xpl_callback_parameters)>
 
 This is the callback that processes incoming xPL messages.  It handles
-the incoming control.basic and sensor.request schema messages.
+the incoming control.basic schema messages.
 
 Supported message commands:
  * enabling/disabling Circles
@@ -320,7 +332,7 @@ sub xpl_control {
       }
 
       # Send the packet to the stick!
-      $self->queue_packet_to_stick($packet, "Command") if (defined $packet);
+      $self->queue_packet_to_stick($packet, "control.basic") if (defined $packet);
 
     }
   }
@@ -335,9 +347,6 @@ the incoming sensor.request schema messages.
 
 Supported message commands:
  * requesting status (current switch state, internal clock)
- * reading out power
- * reading out energy over one-hour intervals
-
  
 =cut
 sub xpl_sensor {
@@ -362,16 +371,6 @@ sub xpl_sensor {
       if ($request eq 'output' || $request eq 'current') {
 	$packet = "0023" . "000D6F0000" . $circle;
       } 
-      elsif ($request eq 'power') {
-        # Ensure we have the calibration readings before we send the read command 
-        # because the processing of the response of the read command requires the 
-        # calibration readings output to calculate the actual power
-        if (!defined($self->{_plugwise}->{circles}->{$circle}->{offruis})) {
-            my $longaddr = $self->addr_s2l($circle);
-            $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
-        }
-        $packet = "0012" . "000D6F0000" . $circle;	  
-      }
       
       else {
         $xpl->info("internal: Received invalid request '$request'\n");
@@ -554,7 +553,7 @@ sub plugwise_process_response
 
   # The default xpl message is a plugwise.basic trig, can be overwritten when required.
   my %xplmsg = (
-      message_type => 'xpl-trig',
+      message_type => 'xpl-stat',
       schema => 'plugwise.basic',
       );
 
@@ -621,9 +620,14 @@ sub plugwise_process_response
   #   circle off resp|  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    $xplmsg{schema} = 'sensor.basic';
-    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'LOW'];
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
 
+	if ($msg_type eq 'control.basic') {
+		$xplmsg{schema} = 'sensor.basic';
+		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'LOW'];
+	} else {
+		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'onoff' => 'off'];
+	}
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
@@ -634,9 +638,15 @@ sub plugwise_process_response
   #   circle on resp |  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    $xplmsg{schema} = 'sensor.basic';
-    $xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'HIGH'];
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
 
+	if ($msg_type eq 'control.basic') {
+		$xplmsg{schema} = 'sensor.basic';
+		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'HIGH'];
+	} else {
+		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'onoff' => 'on'];
+	}
+	
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
 
@@ -662,8 +672,6 @@ sub plugwise_process_response
     delete $self->{_response_queue}->{hex($1)};
 
     # Create the corresponding xPL message
-    $xplmsg{message_type} = 'xpl-stat';
-    $xplmsg{schema}       = 'sensor.basic';
     $xplmsg{body} = ['device'  => $saddr, 'type' => 'power', 'current' => $pow1/1000, 'current8' => $pow8/1000, 'units' => 'kW'];
 
     $xpl->info("PLUGWISE: Circle " . $saddr . " live power 1/8 is: $pow1/$pow8 W\n");
@@ -719,11 +727,9 @@ sub plugwise_process_response
 
     if ($msg_type eq 'sensor.basic') {
 	$xplmsg{schema} = $msg_type;
-	$xplmsg{message_type} = 'xpl-stat';
 	$xplmsg{body} = ['device' => $saddr, 'type' => 'output', 'current' => $current];
     } else {
-	$xplmsg{message_type} = 'xpl-stat';
-	$xplmsg{body} = ['command' => 'status', 'device' => $saddr, 'onoff' => $onoff, 'address' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'datetime' => $circle_date_time];
+	$xplmsg{body} = ['device' => $saddr, 'type' => 'output', 'onoff' => $onoff, 'address' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'datetime' => $circle_date_time];
     }
     # Update the response_queue, remove the entry corresponding to this reply 
     delete $self->{_response_queue}->{hex($1)};
@@ -766,7 +772,6 @@ sub plugwise_process_response
 
     my ($tstamp, $energy) = $self->report_history($s_id);
 
-    $xplmsg{message_type} = 'xpl-stat';
     $xplmsg{body} = ['device' => $s_id, 'type' => 'energy', 'current' => $energy, 'units' => 'kWh', 'datetime' => $tstamp];
 	
 	$xpl->info("PLUGWISE: Historic energy for $s_id"."[$log_addr] is $energy kWh on $tstamp\n");
