@@ -1,4 +1,4 @@
-#!#!/usr/bin/perl -w
+#!/usr/bin/perl -w
 #
 # Copyright (C) 2009 by Mark Hindess
 
@@ -8,6 +8,7 @@ use IO::Select;
 use Socket;
 use Test::More tests => 29;
 use t::Helpers qw/test_warn test_error test_output wait_for_callback/;
+no warnings qw/deprecated/;
 $|=1;
 
 use_ok('xPL::Dock','EasyDAQ');

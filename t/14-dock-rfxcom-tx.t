@@ -1,4 +1,4 @@
-#!#!/usr/bin/perl -w
+#!/usr/bin/perl -w
 #
 # Copyright (C) 2009, 2010 by Mark Hindess
 
@@ -13,6 +13,7 @@ $|=1;
 
 BEGIN {
   require Test::More;
+  $ENV{PERL_ANYEVENT_MODEL} = 'Perl' unless ($ENV{PERL_ANYEVENT_MODEL});
   eval { require AnyEvent::RFXCOM::TX; import AnyEvent::RFXCOM::TX; };
   if ($@) {
     import Test::More skip_all => 'No AnyEvent::RFXCOM::TX module: '.$@;
@@ -65,7 +66,7 @@ ok($client_sel->can_read(0.5), 'device receive a message - F030F030');
 my $buf = '';
 is((sysread $client, $buf, 64), 4, 'read is correct size - F030F030');
 my $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, 'f030f030', 'content is correct - F030F030');
+is($m->str, 'f030f030', 'content is correct - F030F030');
 print $client pack 'H*', '10';
 is(test_output(sub { wait_for_message() }, \*STDOUT),
    "Received: 10\n",
@@ -75,7 +76,7 @@ ok($client_sel->can_read(0.5), 'device receive a message - f03ff03f');
 $buf = '';
 is((sysread $client, $buf, 64), 4, 'read is correct size - f03ff03f');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, 'f03ff03f', 'content is correct - f03ff03f');
+is($m->str, 'f03ff03f', 'content is correct - f03ff03f');
 print $client pack 'H*', '37';
 is(test_output(sub { wait_for_message() }, \*STDOUT),
    "Received: 37\n",
@@ -85,7 +86,7 @@ ok($client_sel->can_read(0.5), 'device receive a message - F037F037');
 $buf = '';
 is((sysread $client, $buf, 64), 4, 'read is correct size - F037F037');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, 'f037f037', 'content is correct - F037F037');
+is($m->str, 'f037f037', 'content is correct - F037F037');
 print $client pack 'H*', '37';
 is(test_output(sub { wait_for_message() }, \*STDOUT),
    "Received: 37\n",
@@ -106,7 +107,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - a1/on');
 $buf = '';
 is((sysread $client, $buf, 64), 5, 'read is correct size - a1/on');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '20609f00ff', 'content is correct - a1/on');
+is($m->str, '20609f00ff', 'content is correct - a1/on');
 
 print $client pack 'H*', '37';
 
@@ -133,7 +134,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - a1/on');
 $buf = '';
 is((sysread $client, $buf, 64), 5, 'read is correct size - a1/on');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '20609f00ff', 'content is correct - a1/on');
+is($m->str, '20609f00ff', 'content is correct - a1/on');
 
 print $client pack 'H*', '37';
 
@@ -144,7 +145,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - a1/on');
 $buf = '';
 is((sysread $client, $buf, 64), 5, 'read is correct size - a1/on');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '20609f00ff', 'content is correct - a1/on');
+is($m->str, '20609f00ff', 'content is correct - a1/on');
 
 print $client pack 'H*', '37';
 
@@ -166,7 +167,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - p/all_lights_off')
 $buf = '';
 is((sysread $client, $buf, 64), 5, 'read is correct size - p/all_lights_off');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '2030cf807f', 'content is correct - p/all_lights_off');
+is($m->str, '2030cf807f', 'content is correct - p/all_lights_off');
 
 print $client pack 'H*', '37';
 
@@ -188,7 +189,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - p/all_lights_off')
 $buf = '';
 is((sysread $client, $buf, 64), 5, 'read is correct size - p/all_lights_off');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '2030cf807f', 'content is correct - p/all_lights_off');
+is($m->str, '2030cf807f', 'content is correct - p/all_lights_off');
 
 print $client pack 'H*', '37';
 
@@ -200,7 +201,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - p/all_lights_off')
 $buf = '';
 is((sysread $client, $buf, 64), 5, 'read is correct size - p/all_lights_off');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '2030cf807f', 'content is correct - p/all_lights_off');
+is($m->str, '2030cf807f', 'content is correct - p/all_lights_off');
 
 print $client pack 'H*', '37';
 
@@ -236,7 +237,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - homeeasy');
 $buf = '';
 is((sysread $client, $buf, 64), 6, 'read is correct size - homeeasy');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '21c7e05dca00', 'content is correct - homeeasy');
+is($m->str, '21c7e05dca00', 'content is correct - homeeasy');
 
 print $client pack 'H*', '37';
 
@@ -260,7 +261,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - homeeasy');
 $buf = '';
 is((sysread $client, $buf, 64), 6, 'read is correct size - homeeasy');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '21c7e05dca00', 'content is correct - homeeasy');
+is($m->str, '21c7e05dca00', 'content is correct - homeeasy');
 
 print $client pack 'H*', '37';
 
@@ -272,7 +273,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - homeeasy');
 $buf = '';
 is((sysread $client, $buf, 64), 6, 'read is correct size - homeeasy');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '21c7e05dca00', 'content is correct - homeeasy');
+is($m->str, '21c7e05dca00', 'content is correct - homeeasy');
 
 print $client pack 'H*', '37';
 
@@ -296,7 +297,7 @@ ok($client_sel->can_read(0.5), 'serial device ready to read - homeeasy');
 $buf = '';
 is((sysread $client, $buf, 64), 6, 'read is correct size - homeeasy');
 $m = xPL::IORecord::Hex->new(raw => $buf);
-is($m, '24c7e05dcaa0', 'content is correct - homeeasy');
+is($m->str, '24c7e05dcaa0', 'content is correct - homeeasy');
 
 print $client pack 'H*', '37';
 
@@ -336,7 +337,7 @@ SKIP: {
   $buf = '';
   is((sysread $client, $buf, 64), 4, 'read is correct size - no ack');
   $m = xPL::IORecord::Hex->new(raw => $buf);
-  is($m, 'f03ff03f', 'content is correct - no ack');
+  is($m->str, 'f03ff03f', 'content is correct - no ack');
   is(test_output(sub {
                    wait_for_variable($xpl, \$plugin->{_reset_device});
                  }, \*STDERR),
@@ -345,7 +346,7 @@ SKIP: {
   $buf = '';
   is((sysread $client, $buf, 64), 4, 'read is correct size - no ack');
   $m = xPL::IORecord::Hex->new(raw => $buf);
-  is($m, 'f033f033', 'content is correct - no ack');
+  is($m->str, 'f033f033', 'content is correct - no ack');
 }
 
 $client->close;

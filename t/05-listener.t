@@ -8,6 +8,7 @@ use t::Helpers qw/test_error test_warn test_output/;
 use File::Temp qw/tempfile/;
 use Socket;
 use Time::HiRes;
+no warnings qw/deprecated/;
 $|=1;
 
 my $timeout = 0.25;
@@ -395,7 +396,7 @@ ok($xpl->remove_input($handle), "remove input");
 
 is(test_error(sub { $xpl->send(invalid => 'messagedata'); }),
    "MY::Listener->send_aux: message error: ".
-     "xPL::Message->new: requires 'schema' parameter",
+     "xPL::ValidatedMessage->new: requires 'schema' parameter",
    "send with invalid message data");
 
 check_stats(0,0,6);

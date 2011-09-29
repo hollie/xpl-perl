@@ -31,9 +31,6 @@ use warnings;
 use English qw/-no_match_vars/;
 use File::Temp qw/tempfile/;
 use Test::More;
-use AnyEvent;
-use AnyEvent::Socket;
-use AnyEvent::Handle;
 use constant {
   DEBUG => $ENV{XPL_TEST_HELPERS_DEBUG}
 };
@@ -119,6 +116,7 @@ sub wait_for_callback {
   $count = $xpl->$method($id)+1 unless (defined $count);
   while ($xpl->$method($id) < $count) {
     #print STDERR "Waiting for $type => $id to reach $count\n";
+    no warnings qw/deprecated/;
     $xpl->main_loop(1);
   }
 }
@@ -128,6 +126,7 @@ sub wait_for_variable {
   my $count = ($$var_ref || 0)+1;
   while (($$var_ref || 0) < $count) {
     #print STDERR "Waiting for read_count to reach $count\n";
+    no warnings qw/deprecated/;
     $xpl->main_loop(1);
   }
 }
