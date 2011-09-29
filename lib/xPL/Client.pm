@@ -154,9 +154,6 @@ sub new {
      body => [ interval => $self->hbeat_interval ],
     );
 
-  # Add a version to the message body if the version is defined
-  push @{$xpl_message_args{body}}, (version => $p{vendor_rev}) if (exists $p{vendor_rev});
-
   if ($self->hubless) {
     $self->standard_hbeat_mode(1);
     $xpl_message_args{schema} = $class.'.basic';

@@ -146,15 +146,15 @@ sub vendor_id {
   'hollie'
 }
 
-=head2 C<vendor_rev( )>
+=head2 C<version( )>
 
 Defines the vendor revision for the PlugWise plugin. This number will be
 reported in the hbeat messages
 
 =cut
 
-sub vendor_rev {
-  '0.9'
+sub version {
+  '1.0'
 }
 
 =head2 C<device_reader( )>
