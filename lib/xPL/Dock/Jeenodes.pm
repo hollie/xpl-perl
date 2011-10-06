@@ -80,24 +80,14 @@ sub init {
                         output_record_type => 'xPL::IORecord::CRLFLine' );
 
   # Add a callback to receive incoming control.basic messages
-  $xpl->add_xpl_callback(id => 'control-basic', callback => \&xpl_control,
-      arguments => $self,
-      filter =>
-      {
-       message_type => 'xpl-cmnd',
-       class => 'control',
-       class_type => 'basic',
-      });
-
-  # Add a callback to receive incoming sensor.request messages
-  $xpl->add_xpl_callback(id => 'sensor-request', callback => \&xpl_sensor,
-      arguments => $self,
-      filter =>
-      {
-       message_type => 'xpl-cmnd',
-       class => 'sensor',
-       class_type => 'request',
-      });
+  # $xpl->add_xpl_callback(id => 'control-basic', callback => \&xpl_control,
+  #     arguments => $self,
+  #     filter =>
+  #     {
+  #      message_type => 'xpl-cmnd',
+  #      class => 'control',
+  #      class_type => 'basic',
+  #     });
 
   # Init the buffer that will be used for serial data reception
   $self->{_uart_rx_buffer} = "";
@@ -148,7 +138,7 @@ sub device_reader {
   # Append newly received string to existing buffer
   $self->{_uart_rx_buffer} .= $new_msg;
 
-  print "UART buffer now looks like: '" . $self->{_uart_rx_buffer} . "'\n";
+  # print "UART buffer now looks like: '" . $self->{_uart_rx_buffer} . "'\n";
 
   my $frame;
 
@@ -158,16 +148,11 @@ sub device_reader {
       $frame = $1;
       $self->{_uart_rx_buffer} = $2; # Cut the part we're going to process from the buffer
 
-      print "Found frame $frame - remaining: $self->{_uart_rx_buffer}\n" if ($self->{_ultraverbose});
+      #print "Found frame $frame - remaining: $self->{_uart_rx_buffer}\n" if ($self->{_ultraverbose});
 
       # Processes the received frame, this is done in another routine to keep the protocol section separated from the hardware interfacing code
       # This function will return either a message that tells not to send and xPL message, or an actual xPL message to be sent
       my $result=$self->plugwise_process_response($frame); 
-
-      next if ($result eq "no_xpl_message_required"); # No packet received that needs an xPL message to be sent
-
-      # For other $result values the result already contains the body of the xPL message
-      $xpl->send(%{$result});
 
   }
 
@@ -204,67 +189,22 @@ sub xpl_control {
     # Commands that target a specific device might need to be sent multiple times
     # if multiple devices are defined
     foreach my $circle (split /,/, $msg->field('device')) {
-      $circle = uc($circle);
+     #  $circle = uc($circle);
  
-     if ($current eq 'enable') {
-        $packet = "0017" . "000D6F0000" . $circle . "01";
-      }
+     # if ($current eq 'enable') {
+     #    $packet = "0017" . "000D6F0000" . $circle . "01";
+     #  }
 
-      elsif ($current eq 'disable') {
-        $packet = "0017" . "000D6F0000" . $circle . "00";
-      }
+     #  elsif ($current eq 'disable') {
+     #    $packet = "0017" . "000D6F0000" . $circle . "00";
+     #  }
 
-      else {
-        $xpl->info("internal: Received invalid command '$current'\n");
-      }
+     #  else {
+     #    $xpl->info("internal: Received invalid command '$current'\n");
+     #  }
 
-      # Send the packet to the stick!
-      $self->queue_packet_to_stick($packet, "control.basic") if (defined $packet);
-
-    }
-  }
-
-  return 1;
-}
-
-=head2 C<xpl_sensor(%xpl_callback_parameters)>
-
-This is the callback that processes incoming xPL messages.  It handles
-the incoming sensor.request schema messages.
-
-Supported message commands:
- * requesting status (current switch state, internal clock)
- 
-=cut
-sub xpl_sensor {
-
-  my %p = @_;
-  my $msg = $p{message};
-  my $self = $p{arguments};
-  my $xpl = $self->{_xpl};
-  my $packet;
-
-  if ($msg->field('device')) {
-    # Commands that target a specific device might need to be sent multiple times
-    # if multiple devices are defined
-    if (!defined $msg->field('request')){
-      return;
-    }
-    my $request = $msg->field('request');
-
-    foreach my $circle (split /,/, $msg->field('device')) {
-      $circle = uc($circle);
- 
-      if ($request eq 'output' || $request eq 'current') {
-	$packet = "0023" . "000D6F0000" . $circle;
-      } 
-      
-      else {
-        $xpl->info("internal: Received invalid request '$request'\n");
-      }
-
-      # Send the packet to the stick!
-      $self->queue_packet_to_stick($packet, "sensor.basic") if (defined $packet);
+     #  # Send the packet to the stick!
+     #  $self->queue_packet_to_stick($packet, "control.basic") if (defined $packet);
 
     }
   }
@@ -282,7 +222,7 @@ any other communication is initiated with the stick.
 sub stick_init {
 
   my $self = shift();
-  $self->write_packet_to_stick("?");
+  $self->write_packet_to_stick("z");
 
   return 1;
 }
@@ -426,7 +366,6 @@ sub plugwise_process_response
       schema => 'sensor.basic',
       );
 
-
   my $xpl = $self->{_xpl};
 
   $frame =~ s/(\n)$//; # Strip trailing CRLF
@@ -462,173 +401,24 @@ sub plugwise_process_response
     my $current = $motion == 1 ? 'on' : 'off';
 
     $xplmsg{body} = ['device'  => "room".$id, 'type' => 'motion', 'current' => $current];
- 
-    return \%xplmsg;
 
-  }
+    $xpl->send(%xplmsg);
 
-  if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
-    my $saddr = $self->addr_l2s($2);
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    $xplmsg{body} = ['device'  => "room".$id, 'type' => 'temp', 'current' => $temp/10];
 
-	if ($msg_type eq 'control.basic') {
-		$xplmsg{schema} = 'sensor.basic';
-		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'LOW'];
-	} else {
-		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'onoff' => 'off'];
-	}
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
+    $xpl->send(%xplmsg);
 
-    $xpl->info("PLUGWISE: Stick reported Circle " . $saddr . " is OFF\n");
-    return \%xplmsg;      
-  }
+    $xplmsg{body} = ['device'  => "room".$id, 'type' => 'humidity', 'current' => $humi];
 
-  #   circle on resp |  seq. nr.     |    | circle MAC
-  if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
-    my $saddr = $self->addr_l2s($2);
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    $xpl->send(%xplmsg);
 
-	if ($msg_type eq 'control.basic') {
-		$xplmsg{schema} = 'sensor.basic';
-		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'current' => 'HIGH'];
-	} else {
-		$xplmsg{body} = ['device'  => $saddr, 'type' => 'output', 'onoff' => 'on'];
-	}
-	
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
+    $xplmsg{body} = ['device'  => "room".$id, 'type' => 'light', 'current' => int($light/255*100)];
 
-    $xpl->info("PLUGWISE: Stick reported Circle " . $saddr . " is ON\n");
-    return \%xplmsg;      
-  }
+    $xpl->send(%xplmsg);
 
-  # Process the response on a powerinfo request
-  # powerinfo resp   |  seq. nr.     ||  Circle MAC    || pulse1        || pulse8        | other stuff we don't care about
-  if ($frame =~/^0013([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{4})([[:xdigit:]]{4})/) {
-    my $saddr = $self->addr_l2s($2);
-    my $pulse1 = $3;
-    my $pulse8 = $4;
 
-    # Assign the values to the data hash
-    $self->{_plugwise}->{circles}->{$saddr}->{pulse1} = $pulse1;
-    $self->{_plugwise}->{circles}->{$saddr}->{pulse8} = $pulse8;
+    return;
 
-    # Calculate the live power
-    my ($pow1, $pow8) = $self->calc_live_power($saddr);
-    
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
-
-    # Create the corresponding xPL message
-    $xplmsg{body} = ['device'  => $saddr, 'type' => 'power', 'current' => $pow1/1000, 'current8' => $pow8/1000, 'units' => 'kW'];
-
-    $xpl->info("PLUGWISE: Circle " . $saddr . " live power 1/8 is: $pow1/$pow8 W\n");
-
-    return \%xplmsg;
-  }
-
-  # Process the response on a query known circles command
-  # circle query resp|  seq. nr.     ||  Circle+ MAC   || Circle MAC on  || memory position
-  if ($frame =~/^0019([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{2})$/) {
-    # Store the node in the object
-    if ($3 ne "FFFFFFFFFFFFFFFF") {
-	$self->{_plugwise}->{circles}->{substr($3, -6, 6)} = {}; # Store the last 6 digits of the MAC address for later use
-	# And immediately queue a request for calibration info
-	$self->queue_packet_to_stick("0026".$3, "Request calibration info");
-    }
-      
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
-
-    # Only when we have walked the complete list
-    return "no_xpl_message_required" if ($4 ne sprintf("%02X", $self->{_plugwise}->{list_circles_count} - 1));
-
-    my @xpl_body = ('command' => 'listcircles');
-    my $count = 0;
-    my $device_id;
-
-    foreach $device_id (keys %{$self->{_plugwise}->{circles}}){
-	my $device_string = sprintf("device%02i", $count++);
-	push @xpl_body, ($device_string => $device_id);
-    }
-
-    # Construct the complete xpl message
-    $xplmsg{body} = [@xpl_body];
-    $xplmsg{message_type} = 'xpl-stat';
-
-    return \%xplmsg;
-  }
-
-  # Process the response on a status request
-  # status response  |  seq. nr.     ||  Circle+ MAC   || year,mon, min || curr_log_addr || powerstate
-  if ($frame =~/^0024([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{2})/){
-    my $saddr = $self->addr_l2s($2);
-    my $onoff = $5 eq '00'? 'off' : 'on';
-    my $current = $5 eq '00' ? 'LOW' : 'HIGH';
-    $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
-    $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = (hex($4) - 278528) / 8;
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
-
-    my $circle_date_time = $self->tstamp2time($3);
-
-    $xpl->info("PLUGWISE: Received status reponse for circle $saddr: ($onoff, logaddr=" . $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} . ", datetime=$circle_date_time)\n");
-
-    if ($msg_type eq 'sensor.basic') {
-	$xplmsg{schema} = $msg_type;
-	$xplmsg{body} = ['device' => $saddr, 'type' => 'output', 'current' => $current];
-    } else {
-	$xplmsg{body} = ['device' => $saddr, 'type' => 'output', 'onoff' => $onoff, 'address' => $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr}, 'datetime' => $circle_date_time];
-    }
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
-
-    return \%xplmsg;
-  }
-
-  # Process the response on a calibration request
-  if ($frame =~/^0027([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{8})([[:xdigit:]]{8})$/){
-  # calibration resp |  seq. nr.     ||  Circle+ MAC   || gainA         || gainB         || offtot        || offruis
-    #print "Received for $2 calibration response!\n";
-    my $saddr = $self->addr_l2s($2);
-    #print "Short address  = $saddr\n";
-    $xpl->info("PLUGWISE: Received calibration reponse for circle $saddr\n");
-
-    $self->{_plugwise}->{circles}->{$saddr}->{gainA}   = $self->hex2float($3);
-    $self->{_plugwise}->{circles}->{$saddr}->{gainB}   = $self->hex2float($4);
-    $self->{_plugwise}->{circles}->{$saddr}->{offtot}  = $self->hex2float($5);
-    $self->{_plugwise}->{circles}->{$saddr}->{offruis} = $self->hex2float($6);
-
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
-
-    return "no_xpl_message_required";      
-  }
-
-  # Process the response on a historic buffer readout
-  if ($frame =~/^0049([[:xdigit:]]{4})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{16})([[:xdigit:]]{8})$/){
-  # history resp     |  seq. nr.     ||  Circle+ MAC   || info 1         || info 2         || info 3         || info 4         || address
-    my $s_id     = $self->addr_l2s($2);
-    my $log_addr = (hex($7) - 278528) / 8 ;  
-    #print "Received history response for $2 and address $log_addr!\n";
-
-    # Assign the values to the data hash
-    $self->{_plugwise}->{circles}->{$s_id}->{history}->{logaddress} = $log_addr;
-    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info1} = $3;
-    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info2} = $4;
-    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info3} = $5;
-    $self->{_plugwise}->{circles}->{$s_id}->{history}->{info4} = $6;
-
-    my ($tstamp, $energy) = $self->report_history($s_id);
-
-    $xplmsg{body} = ['device' => $s_id, 'type' => 'energy', 'current' => $energy, 'units' => 'kWh', 'datetime' => $tstamp];
-	
-	$xpl->info("PLUGWISE: Historic energy for $s_id"."[$log_addr] is $energy kWh on $tstamp\n");
-	
-    # Update the response_queue, remove the entry corresponding to this reply 
-    delete $self->{_response_queue}->{hex($1)};
-
-    return \%xplmsg;
   }
 
   # We should not get here unless we receive responses that are not implemented...
@@ -650,20 +440,15 @@ Project website: http://www.xpl-perl.org.uk/
 
 =head1 LIMITATIONS
 
-When interrogating the Circle+ for known devices, only the first 64 devices 
-are requested. It is not clear if the firmware supports more, as there is 
-no official firmware specification.
-The number of devices requested can be increased by adapting 
-the 'list_circles_count' setting in the init function.
+This code is under development.
 
 =head1 AUTHOR
 
-Jfn, E<lt>pe1pqf@REMOVE_THISzonnet.nlE<gt>
 Lieven Hollevoet, E<lt>lieven@lika.beE<gt>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2005, 2011 by Mark Hindess / Jfn / Lieven Hollevoet
+Copyright (C) 2005, 2011 by Mark Hindess / Lieven Hollevoet
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.7 or,
