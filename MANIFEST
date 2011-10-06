@@ -17,6 +17,7 @@ bin/xpl-heyu
 bin/xpl-heyu-helper
 bin/xpl-hub
 bin/xpl-jabber
+bin/xpl-jeenodes
 bin/xpl-lcdproc
 bin/xpl-linux
 bin/xpl-linux-cpu
@@ -196,6 +197,7 @@ lib/xPL/Dock/GPower.pm
 lib/xPL/Dock/HDDTemp.pm
 lib/xPL/Dock/Heyu.pm
 lib/xPL/Dock/Jabber.pm
+lib/xPL/Dock/Jeenodes.pm
 lib/xPL/Dock/LCDproc.pm
 lib/xPL/Dock/Linux.pm
 lib/xPL/Dock/LIRC.pm
