@@ -665,6 +665,17 @@ sub plugwise_process_response
     $self->{_plugwise}->{circles}->{$saddr}->{pulse1} = $pulse1;
     $self->{_plugwise}->{circles}->{$saddr}->{pulse8} = $pulse8;
 
+    # Ensure we have the calibration info before we try to calc the power, 
+    # if we don't have it, return an error reponse
+    if (!defined $self->{_plugwise}->{circles}->{$saddr}->{gainA}){
+	$xpl->ouch("Cannot report the power, calibration data not received yet for $saddr\n");
+        $xplmsg{schema} = 'log.basic';
+        $xplmsg{body} = [ 'type' => 'err', 'text' => "Report power failed, calibration data not retrieved yet", 'device' => $saddr ];
+        delete $self->{_response_queue}->{hex($1)};
+
+	return \%xplmsg;
+    }
+
     # Calculate the live power
     my ($pow1, $pow8) = $self->calc_live_power($saddr);
     
@@ -770,6 +781,16 @@ sub plugwise_process_response
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{info3} = $5;
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{info4} = $6;
 
+    # Ensure we have the calibration info before we try to calc the power, 
+    # if we don't have it, return an error reponse
+    if (!defined $self->{_plugwise}->{circles}->{$s_id}->{gainA}){
+	$xpl->ouch("Cannot report the power, calibration data not received yet for $s_id\n");
+        $xplmsg{schema} = 'log.basic';
+        $xplmsg{body} = [ 'type' => 'err', 'text' => "Report power failed, calibration data not retrieved yet", 'device' => $s_id ];
+        delete $self->{_response_queue}->{hex($1)};
+
+	return \%xplmsg;
+    }
     my ($tstamp, $energy) = $self->report_history($s_id);
 
     $xplmsg{body} = ['device' => $s_id, 'type' => 'energy', 'current' => $energy, 'units' => 'kWh', 'datetime' => $tstamp];
