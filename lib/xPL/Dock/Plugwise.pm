@@ -620,7 +620,7 @@ sub plugwise_process_response
   #   circle off resp|  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type} || "control.basic";
 
 	if ($msg_type eq 'control.basic') {
 		$xplmsg{schema} = 'sensor.basic';
@@ -638,7 +638,7 @@ sub plugwise_process_response
   #   circle on resp |  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type} || "control.basic";
 
 	if ($msg_type eq 'control.basic') {
 		$xplmsg{schema} = 'sensor.basic';
@@ -719,7 +719,7 @@ sub plugwise_process_response
     my $current = $5 eq '00' ? 'LOW' : 'HIGH';
     $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
     $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = (hex($4) - 278528) / 8;
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type} || "sensor.basic" ;
 
     my $circle_date_time = $self->tstamp2time($3);
 
