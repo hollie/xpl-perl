@@ -140,6 +140,16 @@ sub xpl_msg {
     delete $state{$dev};
     $state{$dev.'/uv'} =
       join($c, $time, $type, $current, 1, 'GAUGE', 0, 40);
+  } elsif ($schema eq 'sensor.basic' && $device && $type eq 'light') {
+    my $dev = exists $map{$device} ? $map{$device} : $device;
+    delete $state{$dev};
+    $state{$dev.'/light'} =
+      join($c, $time, $type, $current, 1, 'GAUGE', 0, 100);
+  } elsif ($schema eq 'sensor.basic' && $device && $type eq 'motion') {
+    my $dev = exists $map{$device} ? $map{$device} : $device;
+    delete $state{$dev};
+    $state{$dev.'/motion'} =
+      join($c, $time, $type, $current, 1, 'GAUGE', 0, 1);
   } elsif ($schema eq 'sensor.basic' && $device && $type eq 'battery') {
     my $dev = $device;
     delete $state{$dev};
