@@ -38,6 +38,7 @@ use xPL::Client;
 use DB_File;
 use RRDs;
 use Fcntl;
+use Time::Local;
 
 $|=1; # autoflush helps debugging
 
@@ -168,6 +169,16 @@ sub xpl_msg {
     my $dev = $device;
     $dev =~ s/-/\//;
     $state{$dev} = join($c, $time, 'count', $current, 0, 'COUNTER', 0, 2**64);
+  }  elsif ($schema eq 'plugwise.basic' && $device && defined($type) && $type eq 'energy') {
+    my $dev = exists $map{$device} ? $map{$device} : $device;
+    
+    $time = $msg->field('datetime');
+    if ($time =~ /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/){
+      $time = timelocal(0, $5, $4, $3, $2-1, $1);
+    }
+    my $status = join ($c, $time, $type, $current*1000, 0, 'ABSOLUTE', 0, 100);
+    my $time = time;
+    update_rrd($time, $dev, split(chr(0),$status), 1); # Last '1' is for hourly updates
   } else {
     return 1; # avoid pointless sync
   }
@@ -185,7 +196,7 @@ sub rrd {
 }
 
 sub update_rrd {
-  my ($time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) = @_;
+  my ($time, $dev, $last, $var, $val, $fill, $dstype, $min, $max, $hourly) = @_;
   my $rrd = $rrd_dir.'/';
   if ($dev =~ m!^(.*)/([^/]+)$!) {
     $rrd .= $1.'/';
@@ -199,14 +210,21 @@ sub update_rrd {
   } else {
     $rrd .= $dev.'.rrd';
   }
+
   unless (-f $rrd) {
+   if (defined $hourly and $hourly == 1) {
+   	make_rrd_hourly($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) or return;
+   } else {
     make_rrd($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max)
       or return;
+   }
   }
   my $t = $fill ? $time : $last;
   if ($last{$rrd} && $last{$rrd} >= $t) {
     return 1;
   }
+  print "Updating RRD '$rrd' with value $val\n" if ($verbose);
+    
   RRDs::update($rrd, '-t', $var, $t.':'.$val);
   my $err = RRDs::error;
   if ($err) {
@@ -218,6 +236,8 @@ sub update_rrd {
 
 sub make_rrd {
   my ($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) = @_;
+  print "Creating normal RRD '$rrd'\n" if ($verbose);
+  
   RRDs::create($rrd,
                '--step', 60,
                "DS:$var:$dstype:300:$min:$max",
@@ -225,6 +245,34 @@ sub make_rrd {
                'RRA:AVERAGE:0.5:60:2400', # every hour for 100 days
                'RRA:AVERAGE:0.5:1440:400', # every day for 400 days
                'RRA:AVERAGE:0.5:10080:2080', # every week for 40 years
+               'RRA:MIN:0.5:1:6000',
+               'RRA:MIN:0.5:60:2400',
+               'RRA:MIN:0.5:1440:400',
+               'RRA:MIN:0.5:10080:2080',
+               'RRA:MAX:0.5:1:6000',
+               'RRA:MAX:0.5:60:2400',
+               'RRA:MAX:0.5:1440:400',
+               'RRA:MAX:0.5:10080:2080',
+              );
+  my $err = RRDs::error;
+  if ($err) {
+    warn "ERROR creating $rrd($var): $err\n";
+    return;
+  }
+  return 1;
+}
+
+sub make_rrd_hourly {
+  my ($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) = @_;
+  print "Creating hourly update RRD '$rrd'\n" if ($verbose);
+  
+  RRDs::create($rrd,
+               '--step', 3600,
+               '--start', 920804400,
+               "DS:$var:$dstype:3700:$min:$max",
+               'RRA:AVERAGE:0.5:1:2400', # every hour for 100 days
+               'RRA:AVERAGE:0.5:24:400', # every day for 400 days
+               'RRA:AVERAGE:0.5:168:2080', # every week for 40 years
                'RRA:MIN:0.5:1:6000',
                'RRA:MIN:0.5:60:2400',
                'RRA:MIN:0.5:1440:400',

@@ -36,6 +36,7 @@ use xPL::IOHandler;
 use xPL::Dock::Plug;
 use Digest::CRC qw(crc);
 use Data::Dumper;
+use Math::Round;
 
 our @ISA = qw(xPL::Dock::Plug);
 our %EXPORT_TAGS = ( 'all' => [ qw() ] );
@@ -822,8 +823,8 @@ sub calc_live_power {
     my $live8 = $pulse8 * 1000 / 468.9385193;
 
     # Round
-    $live1 = int($live1*10)/10;
-    $live8 = int($live8*10)/10;
+    $live1 = round($live1);
+    $live8 = round($live8);
 
     return ($live1, $live8);
 
@@ -844,8 +845,8 @@ sub report_history {
         $energy = $corrected_pulses / 3600 / 468.9385193;
         $tstamp = $self->tstamp2time($1);
     	
-    	# Don't report very low values below 1 Wh and round to 1 Wh
-    	$energy = int($energy * 1000)/1000;
+    	# Round to 1 Wh
+    	$energy = round($energy);
     	
         #print "info1 date: $tstamp, energy $energy kWh\n";
     }
