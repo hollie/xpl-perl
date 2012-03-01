@@ -36,6 +36,7 @@ use xPL::IOHandler;
 use xPL::Dock::Plug;
 use Digest::CRC qw(crc);
 use Data::Dumper;
+use Math::Round;
 
 our @ISA = qw(xPL::Dock::Plug);
 our %EXPORT_TAGS = ( 'all' => [ qw() ] );
@@ -620,7 +621,7 @@ sub plugwise_process_response
   #   circle off resp|  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00DE([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type} || "control.basic";
 
 	if ($msg_type eq 'control.basic') {
 		$xplmsg{schema} = 'sensor.basic';
@@ -638,7 +639,7 @@ sub plugwise_process_response
   #   circle on resp |  seq. nr.     |    | circle MAC
   if ($frame =~/^0000([[:xdigit:]]{4})00D8([[:xdigit:]]{16})$/) {
     my $saddr = $self->addr_l2s($2);
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type} || "control.basic";
 
 	if ($msg_type eq 'control.basic') {
 		$xplmsg{schema} = 'sensor.basic';
@@ -664,6 +665,17 @@ sub plugwise_process_response
     # Assign the values to the data hash
     $self->{_plugwise}->{circles}->{$saddr}->{pulse1} = $pulse1;
     $self->{_plugwise}->{circles}->{$saddr}->{pulse8} = $pulse8;
+
+    # Ensure we have the calibration info before we try to calc the power, 
+    # if we don't have it, return an error reponse
+    if (!defined $self->{_plugwise}->{circles}->{$saddr}->{gainA}){
+	$xpl->ouch("Cannot report the power, calibration data not received yet for $saddr\n");
+        $xplmsg{schema} = 'log.basic';
+        $xplmsg{body} = [ 'type' => 'err', 'text' => "Report power failed, calibration data not retrieved yet", 'device' => $saddr ];
+        delete $self->{_response_queue}->{hex($1)};
+
+	return \%xplmsg;
+    }
 
     # Calculate the live power
     my ($pow1, $pow8) = $self->calc_live_power($saddr);
@@ -719,7 +731,7 @@ sub plugwise_process_response
     my $current = $5 eq '00' ? 'LOW' : 'HIGH';
     $self->{_plugwise}->{circles}->{$saddr}->{onoff} = $onoff;
     $self->{_plugwise}->{circles}->{$saddr}->{curr_logaddr} = (hex($4) - 278528) / 8;
-    my $msg_type = $self->{_response_queue}->{hex($1)}->{type};
+    my $msg_type = $self->{_response_queue}->{hex($1)}->{type} || "sensor.basic" ;
 
     my $circle_date_time = $self->tstamp2time($3);
 
@@ -770,6 +782,16 @@ sub plugwise_process_response
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{info3} = $5;
     $self->{_plugwise}->{circles}->{$s_id}->{history}->{info4} = $6;
 
+    # Ensure we have the calibration info before we try to calc the power, 
+    # if we don't have it, return an error reponse
+    if (!defined $self->{_plugwise}->{circles}->{$s_id}->{gainA}){
+	$xpl->ouch("Cannot report the power, calibration data not received yet for $s_id\n");
+        $xplmsg{schema} = 'log.basic';
+        $xplmsg{body} = [ 'type' => 'err', 'text' => "Report power failed, calibration data not retrieved yet", 'device' => $s_id ];
+        delete $self->{_response_queue}->{hex($1)};
+
+	return \%xplmsg;
+    }
     my ($tstamp, $energy) = $self->report_history($s_id);
 
     $xplmsg{body} = ['device' => $s_id, 'type' => 'energy', 'current' => $energy, 'units' => 'kWh', 'datetime' => $tstamp];
@@ -822,8 +844,8 @@ sub calc_live_power {
     my $live8 = $pulse8 * 1000 / 468.9385193;
 
     # Round
-    $live1 = int($live1*10)/10;
-    $live8 = int($live8*10)/10;
+    $live1 = round($live1);
+    $live8 = round($live8);
 
     return ($live1, $live8);
 
@@ -844,8 +866,8 @@ sub report_history {
         $energy = $corrected_pulses / 3600 / 468.9385193;
         $tstamp = $self->tstamp2time($1);
     	
-    	# Don't report very low values below 1 Wh and round to 1 Wh
-    	$energy = int($energy * 1000)/1000;
+    	# Round to 1 Wh
+    	$energy = round($energy);
     	
         #print "info1 date: $tstamp, energy $energy kWh\n";
     }
