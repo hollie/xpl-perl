@@ -1,4 +1,4 @@
-#!#!/usr/bin/perl -w
+#!/usr/bin/perl -w
 #
 # Copyright (C) 2010 by Mark Hindess
 
@@ -8,7 +8,7 @@ use IO::Select;
 use Socket;
 use t::Helpers qw/test_warn test_error test_output/;
 use t::Dock qw/check_sent_message/;
-
+no warnings qw/deprecated/;
 $|=1;
 
 BEGIN {

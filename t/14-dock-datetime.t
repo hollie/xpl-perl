@@ -1,4 +1,4 @@
-#!#!/usr/bin/perl -w
+#!/usr/bin/perl -w
 #
 # Copyright (C) 2010 by Mark Hindess
 
@@ -6,6 +6,7 @@ use strict;
 use POSIX qw/strftime/;
 use Socket;
 use t::Helpers qw/test_warn test_error test_output/;
+no warnings qw/deprecated/;
 $|=1;
 
 BEGIN {

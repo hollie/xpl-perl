@@ -106,7 +106,7 @@ sub new {
   my $pkg = shift;
 
   my %p = @_;
-  if ($p{validate} || $ENV{XPL_MESSAGE_VALIDATE}) {
+  if ($p{validate} || $ENV{XPL_MESSAGE_VALIDATE} || !exists $p{message_type}) {
     require xPL::ValidatedMessage;
     import xPL::ValidatedMessage;
     return xPL::ValidatedMessage->new(@_);
@@ -130,6 +130,7 @@ sub new {
   defined $p{schema} or $pkg->argh(q{requires 'schema' parameter});
   $self->{_schema} = $p{schema};
 
+  # next line isn't hit yet but will be after deprecation handling is removed
   exists $p{message_type} or $pkg->argh(q{requires 'message_type' parameter});
   my $message_type = $p{message_type};
   exists $MESSAGE_TYPES{$message_type} or
@@ -157,6 +158,18 @@ sub new {
     $self->{_body_array} = $p{body} || [];
   }
   return $self;
+}
+
+sub DESTROY { }
+
+our $AUTOLOAD;
+sub AUTOLOAD {
+  my $self = shift;
+  my $name = $AUTOLOAD;
+  $name =~ s/.*://;
+  $self->ouch('calling invalid or deprecated method. '.
+              "Use field('$name') to obtain body field values instead");
+  $self->field($name);
 }
 
 =head2 C<new_from_payload( $message )>
@@ -195,6 +208,31 @@ sub new_from_payload {
   $r{schema} = $1;
   # strict => 0 is only really needed when xPL::ValidatedMessage's are created
   return $_[0]->new(strict => 0, %r);
+}
+
+sub strict {
+  warnings::warnif('deprecated',
+    '"strict" is deprecated. Set env var "XPL_MESSAGE_VALIDATE=1" instead');
+  0;
+}
+
+sub extra_field {
+  warnings::warnif('deprecated',
+                   '"extra_field" is deprecated. use "field" method instead');
+  shift->field(@_);
+}
+
+sub extra_fields {
+  warnings::warnif('deprecated',
+    '"extra_fields" is deprecated. "body_fields" returns all fields now');
+  return;
+}
+
+sub extra_field_string {
+  warnings::warnif('deprecated',
+    '"extra_field_string" is deprecated. "body_content" includes all fields now'
+  );
+  return '';
 }
 
 sub _parse_head {
