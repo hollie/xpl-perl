@@ -794,6 +794,16 @@ sub plugwise_process_response
     }
     my ($tstamp, $energy) = $self->report_history($s_id);
 
+	# If the timestamp is no good, we tried to retrieve a field that contains no valid data, generate an error response
+	if ($tstamp eq "000000000000") {
+	 $xpl->ouch("Cannot report the power for interval $log_addr of circle $s_id, it is in the future\n");
+        $xplmsg{schema} = 'log.basic';
+        $xplmsg{body} = [ 'type' => 'err', 'text' => "Report power failed, no valid data in time interval", 'device' => $s_id ];
+        delete $self->{_response_queue}->{hex($1)};
+
+ 	 return \%xplmsg;
+	}
+	
     $xplmsg{body} = ['device' => $s_id, 'type' => 'energy', 'current' => $energy, 'units' => 'kWh', 'datetime' => $tstamp];
 	
 	$xpl->info("PLUGWISE: Historic energy for $s_id"."[$log_addr] is $energy kWh on $tstamp\n");
@@ -864,14 +874,17 @@ sub report_history {
 	my $tstamp = 0;
 	
     if ($data =~ /^([[:xdigit:]]{8})([[:xdigit:]]{8})$/){
-        # Calculate kWh
+        # Calculate Wh
         my $corrected_pulses = $self->pulsecorrection($id, hex($2));
-        $energy = $corrected_pulses / 3600 / 468.9385193;
+        $energy = $corrected_pulses / 3600 / 468.9385193 * 1000;
         $tstamp = $self->tstamp2time($1);
     	
     	# Round to 1 Wh
     	$energy = round($energy);
-    	
+
+		# Report kWh
+		$energy = $energy/1000;
+		
         #print "info1 date: $tstamp, energy $energy kWh\n";
     }
     
