@@ -248,15 +248,15 @@ sub xpl_plugwise {
       $circle = uc($circle);
  
      if ($command eq 'on') {
-        $packet = "0017" . "000D6F0000" . $circle . "01";
+        $packet = "0017" . $self->addr_s2l($circle) . "01";
       }
 
       elsif ($command eq 'off') {
-        $packet = "0017" . "000D6F0000" . $circle . "00";
+        $packet = "0017" . $self->addr_s2l($circle) . "00";
       }
 
       elsif ($command eq 'status') {
-        $packet = "0023" . "000D6F0000" . $circle;
+        $packet = "0023" . $self->addr_s2l($circle);
       }
 
       elsif ($command eq 'livepower') {
@@ -267,7 +267,7 @@ sub xpl_plugwise {
             my $longaddr = $self->addr_s2l($circle);
             $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
         }
-        $packet = "0012" . "000D6F0000" . $circle;
+        $packet = "0012" . $self->addr_s2l($circle);
       }
 
       elsif ($command eq 'history') {
@@ -279,7 +279,7 @@ sub xpl_plugwise {
             $self->queue_packet_to_stick("0026". $longaddr, "Request calibration info");
         }
         my $address = $msg->field('address') * 8 + 278528;
-        $packet = "0048" . "000D6F0000" . $circle . sprintf("%08X", $address);
+        $packet = "0048" . $self->addr_s2l($circle) . sprintf("%08X", $address);
       } 
 
       else {
@@ -321,11 +321,11 @@ sub xpl_control {
       $circle = uc($circle);
  
      if ($current eq 'enable') {
-        $packet = "0017" . "000D6F0000" . $circle . "01";
+        $packet = "0017" . $self->addr_s2l($circle) . "01";
       }
 
       elsif ($current eq 'disable') {
-        $packet = "0017" . "000D6F0000" . $circle . "00";
+        $packet = "0017" . $self->addr_s2l($circle) . "00";
       }
 
       else {
@@ -370,7 +370,7 @@ sub xpl_sensor {
       $circle = uc($circle);
  
       if ($request eq 'output' || $request eq 'current') {
-	$packet = "0023" . "000D6F0000" . $circle;
+	$packet = "0023" . $self->addr_s2l($circle);
       } 
       
       else {
@@ -925,7 +925,7 @@ sub query_connected_circles {
     # Interrogate the first x connected devices
     while ($index < $self->{_plugwise}->{list_circles_count}) {
 	my $strindex = sprintf("%02X", $index++);
-	my $packet   = "0018" . "000D6F0000" . $self->{_plugwise}->{coordinator_MAC} . $strindex;
+	my $packet   = "0018" . $self->addr_s2l($self->{_plugwise}->{coordinator_MAC}) . $strindex;
 	$self->queue_packet_to_stick($packet, "Query connected device $strindex");
     }
 
@@ -935,13 +935,17 @@ sub query_connected_circles {
 # Convert the long Circle address notation to short
 sub addr_l2s {
     my ($self,$address) = @_;
-    return substr($address, -6, 6);
+    my $saddr = substr($address, -8, 8);
+    # We will return at least 6 bytes, more if required
+    # This is to keep compatibility with existing code that only supports 6 byte short addresses
+    return sprintf("%06X", hex($saddr));
 }
 
 # Convert the short Circle address notation to long
 sub addr_s2l {
     my ($self,$address) = @_;
-    return "000D6F0000" . $address;
+    
+    return "000D6F00" . sprintf("%08X", hex($address));
 }
 
 1;

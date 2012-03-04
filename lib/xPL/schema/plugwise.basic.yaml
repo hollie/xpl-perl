@@ -20,7 +20,7 @@ types:
         error: "It should be a comma-separated list of devices - e.g. '3FED03,3BCD89,3ACDFF'."
         validation: 
           type: Pattern
-          pattern: '([A-Fa-f]|[0-9]){6}((,\s*)([A-Fa-f]|[0-9]){6})*'
+          pattern: '([A-Fa-f]|[0-9]){6,8}((,\s*)([A-Fa-f]|[0-9]){6,8})*'
       - name: lastlog
         error: "It should be 8 characters long"
         validation: 
@@ -43,7 +43,7 @@ types:
         error: "It should be a comma-separated list of devices - e.g. '3FED03,3BCD89,3ACDFF'."
         validation: 
           type: Pattern
-          pattern: '([A-Fa-f]|[0-9]){6}((,\s*)([A-Fa-f]|[0-9]){6})*'
+          pattern: '([A-Fa-f]|[0-9]){6,8}((,\s*)([A-Fa-f]|[0-9]){6,8})*'
       - name: lastlog
         error: "It should be a 8 characters long"
         validation:
@@ -117,7 +117,7 @@ types:
         error: "It should be a comma-separated list of devices - e.g. '3FED03,3BCD89,3ACDFF'."
         validation: 
           type: Pattern
-          pattern: '([A-Fa-f]|[0-9]){6}((,\s*)([A-Fa-f]|[0-9]){6})*'
+          pattern: '([A-Fa-f]|[0-9]){6,8}((,\s*)([A-Fa-f]|[0-9]){6,8})*'
       - name: onoff
         error: "It should be a 2 characters long"
         validation:
