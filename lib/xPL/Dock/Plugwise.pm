@@ -829,7 +829,10 @@ sub pulsecorrection {
 
     # Correct the pulses with the calibration data
     my $out = (($pulses + $offnoise) ^ 2) * $gainB + (($pulses + $offnoise ) * $gainA ) + $offtot;
-
+    
+    # Never report negative values, can happen with really small values
+    $out = 0 if ($out < 0);
+    
     return $out;
 
 }
