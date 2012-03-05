@@ -11,3 +11,4 @@
 /doc/xpl-perl-*.*
 /doc/tmp.*.tex
 /Makefile.local
+.DS_Store
