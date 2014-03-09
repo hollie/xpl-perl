@@ -104,7 +104,7 @@ sub new {
   foreach (qw/vendor_id device_id/) {
     exists $p{$_} or $self->argh("requires '$_' parameter");
     $p{$_} = lc $p{$_};
-    $p{$_} =~ /^[a-z0-9]{1,8}$/ or $self->argh("$_ invalid");
+    $p{$_} =~ /^[a-z0-9]{1,8}$/ or $self->argh("$_ '$p{$_}' invalid, it is too long or contains invalid characters");
   }
 
   exists $p{instance_id} or
