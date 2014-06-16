@@ -75,10 +75,6 @@ my @graph =
     name => "1 Week",
    },
    {
-    span => '14d',
-    name => "Fortnight",
-   },
-   {
     span => '1m',
     name => "Month",
    },
@@ -121,8 +117,8 @@ foreach my $dir (sort keys %rrds) {
         my $title = 'for '.$var.' from '.$dir.'/'.$a;
         $fh->print("<html><head><title>Graphs $title</title></head><body>\n");
         $fh->print("<h1>Graphs $title</h1>");
-        $fh->printf("<p>Generated at %s.</p>\n",
-                    strftime("%Y-%m-%d %H:%M", localtime(time)));
+        #$fh->printf("<p>Generated at %s.</p>\n",
+        #            strftime("%Y-%m-%d %H:%M", localtime(time)));
         foreach my $rec (@graph) {
           my $span = $rec->{span};
           my $name = $rec->{name};
@@ -134,10 +130,10 @@ foreach my $dir (sort keys %rrds) {
             my $start = '-'.$span;
             my $end = 'now';
             RRDs::graph("$gb/$file",
-                        "--title" => "Graph $title ($name)",
                         "--start" => $start, "--end"   => $end,
-                        "--width" => 600,  "--height" => 200,
-                        "--imgformat" => "PNG", "--interlaced", '--lazy',
+                        "--title" => "Graph $title ($name)",
+                        #"--width" => 600,  "--height" => 200,
+                        "--imgformat" => "PNG", "--interlaced", 
                         "DEF:avg=$rrd:$var:AVERAGE", "DEF:min=$rrd:$var:MIN",
                         "DEF:max=$rrd:$var:MAX",
                         "LINE1:min#0EEFD2:C Min",

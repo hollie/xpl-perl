@@ -1,0 +1,290 @@
+#!/usr/bin/perl -w
+
+=head1 NAME
+
+xpl-rrd - Perl script for an xPL application that logs data to rrd files
+
+=head1 SYNOPSIS
+
+  xpl-rrd [flags] [options] <rrd-dir>
+  where valid flags are:
+    -h - show this help text
+    -v - verbose client mode
+  and valid options are (default shown in brackets):
+    -i if0 - the interface for xPL messages (first non-loopback or loopback)
+    -x map - map device names to more friendly aliases (none)
+             N.B. This is a temporary hack to get around lack of config
+             support this will be removed in future.
+
+  # start the rrd listening and broadcasting on first Ethernet
+  # interface in verbose mode
+  xpl-rrd -i eth0 -v
+
+=head1 DESCRIPTION
+
+This script is an xPL client that logs known message types to RRD
+database files.  
+
+=cut
+
+use 5.006;
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+use xPL::Client;
+use DB_File;
+use RRDs;
+use Fcntl;
+use Time::Local;
+
+$|=1; # autoflush helps debugging
+
+my %args = ( vendor_id => 'hollie', device_id => 'kstrrrd', );
+my %opt = ();
+my $verbose;
+my $interface;
+my $help;
+my $man;
+my $device_map;
+GetOptions('verbose+' => \$verbose,
+           'interface=s' => \$interface,
+           'define=s' => \%opt,
+           'help|?|h' => \$help,
+           'man' => \$man,
+           'device_map|x=s' => \$device_map,
+          ) or pod2usage(2);
+pod2usage(1) if ($help);
+pod2usage(-exitstatus => 0, -verbose => 2) if ($man);
+
+$args{'interface'} = $interface if ($interface);
+$args{'verbose'} = $verbose if ($verbose);
+
+my $rrd_dir =
+   shift or pod2usage(-message =>
+                        'The path to rrd directory parameter is required',
+                      -exitstatus => 1);
+
+my $state_db = $rrd_dir.'/state.db';
+
+mkdir $rrd_dir, 0755 unless (-d $rrd_dir); ## no critic
+my %state;
+my $tie_h = tie %state, 'DB_File', $state_db, O_CREAT|O_RDWR,
+  0666, $DB_HASH; ## no critic
+die "Failed to open $state_db file: $!\n" unless ($tie_h);
+
+my %map = ();
+if ($device_map) {
+  open my $fh, '<', $device_map or die "Failed to open $device_map: $!\n";
+  while(<$fh>) {
+    next if (/^\s*$/ || /^\s*#/); # skip blank or comment lines
+    chomp;
+    if (/^(.*)\s*=\s*(.*)$/) {
+      $map{$1} = $2;
+    } else {
+      warn "$device_map line $. invalid line: $_\n";
+    }
+  }
+  close $fh;
+}
+
+my %last;
+
+# Create an xPL Client object
+my $xpl = xPL::Client->new(%args, %opt) or die "Failed to create xPL::Client\n";
+
+# Add a callback to receive all incoming xPL messages
+$xpl->add_xpl_callback(id => 'xpl',
+                       self_skip => 0, targeted => 0,
+                       callback => \&xpl_msg);
+#$xpl->add_timer(id => 'rrd', timeout => 30, callback => \&rrd);
+
+# Run the main loop
+$xpl->main_loop();
+
+# The callback to log the incoming messages
+sub xpl_msg {
+  my %p = @_;
+  my $msg = $p{message};
+  my $time = time;
+  my $c = chr(0);
+
+  my $schema = $msg->schema;
+  my $device = $msg->field('device');
+  my $type = $msg->field('type');
+  my $current = $msg->field('current');
+  if ($msg->schema eq 'sensor.basic' && $device && ($type eq 'volume')) {
+  	# Adapt the device name and the sensor type to end up with sane folder structures.
+  	if ($device =~ /(\w+)\-(\w+)/) {
+  		$device = $1;
+  		$type   = $2;
+  	} else {
+  		return 1;
+  	}
+    my $dev = exists $map{$device} ? $map{$device} : $device;
+    delete $state{$dev};
+    
+    my $fullname = $dev . '/' . $type;
+     
+    $state{$fullname} =
+      join($c, $time, $type, $current, 1, 'COUNTER', 0, 2**32);
+    update_rrd($time, $fullname, split(chr(0), $state{$fullname}));
+
+	$fullname = $fullname . "_absolute";    
+    $state{$fullname} =
+      join($c, $time, $type, $current, 1, 'GAUGE', 0, 2**32);
+    update_rrd($time, $fullname, split(chr(0), $state{$fullname}));
+      
+  } elsif ($msg->schema eq 'sensor.basic' && $device && ($type eq 'generic')) {
+  	  	# Adapt the device name and the sensor type to end up with sane folder structures.
+  	if ($device =~ /(\w+)\-(\w+)/) {
+  		$device = $1;
+  		$type   = $2;
+  	} else {
+  		return 1;
+  	}
+    my $dev = exists $map{$device} ? $map{$device} : $device;
+    delete $state{$dev};
+    
+    my $fullname = $dev . '/' . $type;
+     
+    $state{$fullname} =
+      join($c, $time, $type, $current, 1, 'GAUGE', -180, 256);
+      
+    update_rrd($time, $fullname, split(chr(0), $state{$fullname}));
+          
+  } else {
+    return 1; # avoid pointless sync
+  }
+  $tie_h->sync;
+  return 1;
+}
+
+sub rrd {
+  my $time = time;
+  my %data = ();
+  foreach my $dev (keys %state) {
+    update_rrd($time, $dev, split(chr(0), $state{$dev}));
+  }
+  return 1;
+}
+
+sub update_rrd {
+  my ($time, $dev, $last, $var, $val, $fill, $dstype, $min, $max, $hourly) = @_;
+  my $rrd = $rrd_dir.'/';
+  if ($dev =~ m!^(.*)/([^/]+)$!) {
+    $rrd .= $1.'/';
+    mkdir $rrd, 0755 unless (-d $1);
+    $rrd .= $2.'.rrd';
+    my $old = $rrd_dir.'/'.$1.'.rrd';
+    if (-f $old) {
+      print STDERR "Trying to rename $old to $rrd\n";
+      rename($old, $rrd) or die "Failed to rename: $!\n";
+    }
+  } else {
+    $rrd .= $dev.'.rrd';
+  }
+
+  unless (-f $rrd) {
+   if (defined $hourly and $hourly == 1) {
+   	make_rrd_hourly($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) or return;
+   } else {
+    make_rrd($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max)
+      or return;
+   }
+  }
+  my $t = $fill ? $time : $last;
+  if ($last{$rrd} && $last{$rrd} >= $t) {
+    return 1;
+  }
+  print "Updating RRD '$rrd' with value $val\n" if ($verbose);
+    
+  RRDs::update($rrd, '-t', $var, $t.':'.$val);
+  my $err = RRDs::error;
+  if ($err) {
+    warn "ERROR updating $rrd: $err\n";
+    return;
+  }
+  return 1;
+}
+
+sub make_rrd {
+  my ($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) = @_;
+  print "Creating normal RRD '$rrd'\n" if ($verbose);
+  
+  RRDs::create($rrd,
+               '--step', 30,
+               "DS:$var:$dstype:300:$min:$max",
+               'RRA:AVERAGE:0.5:1:6000', # 100 hours
+               'RRA:AVERAGE:0.5:60:2400', # every hour for 100 days
+               'RRA:AVERAGE:0.5:1440:400', # every day for 400 days
+               'RRA:AVERAGE:0.5:10080:2080', # every week for 40 years
+               'RRA:MIN:0.5:1:6000',
+               'RRA:MIN:0.5:60:2400',
+               'RRA:MIN:0.5:1440:400',
+               'RRA:MIN:0.5:10080:2080',
+               'RRA:MAX:0.5:1:6000',
+               'RRA:MAX:0.5:60:2400',
+               'RRA:MAX:0.5:1440:400',
+               'RRA:MAX:0.5:10080:2080',
+              );
+  my $err = RRDs::error;
+  if ($err) {
+    warn "ERROR creating $rrd($var): $err\n";
+    return;
+  }
+  return 1;
+}
+
+sub make_rrd_hourly {
+  my ($rrd, $time, $dev, $last, $var, $val, $fill, $dstype, $min, $max) = @_;
+  print "Creating hourly update RRD '$rrd'\n" if ($verbose);
+  
+  RRDs::create($rrd,
+               '--step', 3600,
+               '--start', 920804400,
+               "DS:$var:$dstype:3700:$min:$max",
+               'RRA:AVERAGE:0.5:1:2400', # every hour for 100 days
+               'RRA:AVERAGE:0.5:24:400', # every day for 400 days
+               'RRA:AVERAGE:0.5:168:2080', # every week for 40 years
+               'RRA:MIN:0.5:1:6000',
+               'RRA:MIN:0.5:60:2400',
+               'RRA:MIN:0.5:1440:400',
+               'RRA:MIN:0.5:10080:2080',
+               'RRA:MAX:0.5:1:6000',
+               'RRA:MAX:0.5:60:2400',
+               'RRA:MAX:0.5:1440:400',
+               'RRA:MAX:0.5:10080:2080',
+              );
+  my $err = RRDs::error;
+  if ($err) {
+    warn "ERROR creating $rrd($var): $err\n";
+    return;
+  }
+  return 1;
+}
+
+# send a "hbeat.end" message on exit
+END { defined $xpl && $xpl->send_hbeat_end(); }
+
+=head1 SEE ALSO
+
+xPL::Client(3), xPL::Listener(3), rrdtool(1), RRDs(3)
+
+Project website: http://www.xpl-perl.org.uk/
+
+ZenAH Project website: http://www.zenah.org.uk/
+
+=head1 AUTHOR
+
+Mark Hindess, E<lt>soft-xpl-perl@temporalanomaly.comE<gt>
+
+=head1 COPYRIGHT
+
+Copyright (C) 2006, 2010 by Mark Hindess
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.8.7 or,
+at your option, any later version of Perl 5 you may have available.
+
+=cut

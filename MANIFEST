@@ -37,12 +37,14 @@ bin/xpl-rfxcom-rx
 bin/xpl-rfxcom-tx
 bin/xpl-rrd
 bin/xpl-rrd-graphs
+bin/xpl-rrd-kamstrup
 bin/xpl-send.c
 bin/xpl-sender
 bin/xpl-send.sh
 bin/xpl-smart
 bin/xpl-sms-send
 bin/xpl-tcphelp
+bin/xpl-tme50
 bin/xpl-tty-tcp
 bin/xpl-udin
 bin/xpl-viom
@@ -211,6 +213,7 @@ lib/xPL/Dock/RFXComRX.pm
 lib/xPL/Dock/RFXComTX.pm
 lib/xPL/Dock/SMART.pm
 lib/xPL/Dock/TCPHelp.pm
+lib/xPL/Dock/TME50.pm
 lib/xPL/Dock/UDIN.pm
 lib/xPL/Dock/VIOM.pm
 lib/xPL/Dock/W800.pm
