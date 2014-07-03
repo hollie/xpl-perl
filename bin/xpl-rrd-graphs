@@ -24,6 +24,7 @@ use strict;
 use File::Find;
 use File::Path qw/mkpath/;
 use POSIX qw/strftime/;
+use File::Slurp;
 use RRDs;
 
 $|=1;
@@ -128,22 +129,10 @@ foreach my $dir (sort keys %rrds) {
           } else {
             print $span, ",";
             my $start = '-'.$span;
-            my $end = 'now';
+            my @cfg = get_config_string($gb, $file, $rrd, "Graph $title ($name)", $var, $start);
+            
             RRDs::graph("$gb/$file",
-                        "--start" => $start, "--end"   => $end,
-                        "--title" => "Graph $title ($name)",
-                        #"--width" => 600,  "--height" => 200,
-                        "--imgformat" => "PNG", "--interlaced", 
-                        "DEF:avg=$rrd:$var:AVERAGE", "DEF:min=$rrd:$var:MIN",
-                        "DEF:max=$rrd:$var:MAX",
-                        "LINE1:min#0EEFD2:C Min",
-                        "LINE1:avg#EFD80E:C Avg",
-                        "LINE1:max#EF500E:C Max",
-                        "GPRINT:min:MIN:Min %7.2lf",
-                        "VDEF:gavg=avg,AVERAGE", "GPRINT:gavg:Avg %7.2lf",
-                        "GPRINT:max:MAX:Max %7.2lf\\l",
-                        "COMMENT:".strftime('%Y-%m-%d %H\:%m\r',
-                                            localtime(time)),
+                        @cfg
                        );
             my $err = RRDs::error;
             if ($err) {
@@ -192,6 +181,42 @@ sub rrd_data_sources {
   }
   return [keys %ds];
 }
+
+# Allow the tool to fetch a configuration string for the current graph if it exists
+sub get_config_string {
+	my $path  = shift();
+	my $file  = shift();
+	my $rrd   = shift();
+	my $title = shift();
+	my $var   = shift();
+	my $start = shift();
+	
+	my @configstring;
+	
+	my $local_file  = $path . "/". $file .".conf";
+	my $global_file = $path . "/graph.conf";
+	 
+	return eval(File::Slurp::read_file($local_file)) if (-e $local_file);
+	return eval(File::Slurp::read_file($global_file)) if (-e $global_file);
+	
+	# Default return
+	return ("--start" => $start, "--end"   => "now",
+						"--title" => "$title",
+                        "--imgformat" => "PNG", "--interlaced", 
+                        "DEF:avg=$rrd:$var:AVERAGE", "DEF:min=$rrd:$var:MIN",
+                        "DEF:max=$rrd:$var:MAX",
+                        "LINE1:min#0EEFD2:C Min",
+                        "LINE1:avg#EFD80E:C Avg",
+                        "LINE1:max#EF500E:C Max",
+                        "GPRINT:min:MIN:Min %7.2lf",
+                        "VDEF:gavg=avg,AVERAGE", "GPRINT:gavg:Avg %7.2lf",
+                        "GPRINT:max:MAX:Max %7.2lf\\l",
+                        "COMMENT:".strftime('%Y-%m-%d %H\:%m\r',
+                                            localtime(time)),
+                        );
+	
+}
+
 
 =head1 SEE ALSO
 
