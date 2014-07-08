@@ -21,7 +21,7 @@ the wakeup character.
 
 =cut
 
-use 5.018;
+use 5.014;
 use strict;
 use warnings;
 
@@ -336,7 +336,7 @@ sub _kamstrup_payload_decode {
 	if ($payload =~ /^79\w{8}(\w{4})(\w{8})(\w{8})/ || 
 		$payload =~ /^78\w{6}(\w{4})\w{4}(\w{8})\w{4}(\w{8})/) {
 		# Compact frame and full frame
-		$info       = $self->_byte_reverse($1);
+		$info       = hex($self->_byte_reverse($1)) % 16;
 		$volume     = hex($self->_byte_reverse($2));
 		$tgt_volume = hex($self->_byte_reverse($3));
 	} else {
