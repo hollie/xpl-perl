@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-xpl-rrd - Perl script for an xPL application that logs data to rrd files
+xpl-rrd-kamstrup - Perl script for an xPL application that logs data to rrd files
 
 =head1 SYNOPSIS
 
@@ -10,15 +10,19 @@ xpl-rrd - Perl script for an xPL application that logs data to rrd files
   where valid flags are:
     -h - show this help text
     -v - verbose client mode
+    
   and valid options are (default shown in brackets):
     -i if0 - the interface for xPL messages (first non-loopback or loopback)
     -x map - map device names to more friendly aliases (none)
              N.B. This is a temporary hack to get around lack of config
              support this will be removed in future.
+    -u     - URL to report to with curl         
+    -c     - credentials to post the results to a web service. When this parameter 
+             is defined the results are posted with curl to a web server.
 
   # start the rrd listening and broadcasting on first Ethernet
   # interface in verbose mode
-  xpl-rrd -i eth0 -v
+  xpl-rrd-kamstrup -i eth0 -v
 
 =head1 DESCRIPTION
 
@@ -37,6 +41,7 @@ use DB_File;
 use RRDs;
 use Fcntl;
 use Time::Local;
+use POSIX qw(strftime);
 
 $|=1; # autoflush helps debugging
 
@@ -47,9 +52,14 @@ my $interface;
 my $help;
 my $man;
 my $device_map;
+my $credentials;
+my $url;
+
 GetOptions('verbose+' => \$verbose,
            'interface=s' => \$interface,
            'define=s' => \%opt,
+           'url|u=s' => \$url,
+           'credentials|c=s' => \$credentials, 
            'help|?|h' => \$help,
            'man' => \$man,
            'device_map|x=s' => \$device_map,
@@ -69,6 +79,8 @@ my $state_db = $rrd_dir.'/state.db';
 
 mkdir $rrd_dir, 0755 unless (-d $rrd_dir); ## no critic
 my %state;
+my %url_state;
+
 my $tie_h = tie %state, 'DB_File', $state_db, O_CREAT|O_RDWR,
   0666, $DB_HASH; ## no critic
 die "Failed to open $state_db file: $!\n" unless ($tie_h);
@@ -123,6 +135,8 @@ sub xpl_msg {
   	}
     my $dev = exists $map{$device} ? $map{$device} : $device;
     delete $state{$dev};
+    # Store the reading in the URL state database, ready for pushing with curl when the sequence packet arrives.
+    $url_state{$device}{$type} = $current;
     
     my $fullname = $dev . '/' . $type;
      
@@ -146,6 +160,9 @@ sub xpl_msg {
     my $dev = exists $map{$device} ? $map{$device} : $device;
     delete $state{$dev};
     
+    # Store the reading in the URL state database, ready for pushing with curl when the sequence packet arrives.
+    $url_state{$device}{$type} = $current;
+    
     my $fullname = $dev . '/' . $type;
      
     $state{$fullname} =
@@ -157,6 +174,20 @@ sub xpl_msg {
     return 1; # avoid pointless sync
   }
   $tie_h->sync;
+  
+  if ($type eq "sequence") {
+  	#print "Current state ready for pushing:\n";
+  	#print Dumper($url_state{$device});
+  	my $rssi     = $url_state{$device}{rssi};
+  	my $sequence = $url_state{$device}{sequence};
+  	my $volume   = $url_state{$device}{volume};
+  	my $stamp = strftime "%F %R:%S", localtime;
+  
+  	my $result = system ("curl -H \"content-type: application/json\" -u $credentials -f -X POST -d '{ \"meter\": \"/api/v1/meter/2/\", \"temp\": \"0\", \"rssi\": \"$rssi\", \"battery\": \"$sequence\", \"timestamp\": \"$stamp\", \"value\": \"$volume\" }' $url");
+  	#print $result;
+  	#print ("curl -H \"content-type: application/json\" -u $credentials -f -X POST -d '{ \"meter\": \"/api/v1/meter/2/\", \"temp\": \"0\", \"rssi\": \"$rssi\", \"battery\": \"$sequence\", \"timestamp\": \"$stamp\", \"value\": \"$volume\" }' $url"); 
+  	
+  }
   return 1;
 }
 
