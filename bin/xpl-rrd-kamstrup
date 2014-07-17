@@ -170,7 +170,10 @@ sub xpl_msg {
       
     update_rrd($time, $fullname, split(chr(0), $state{$fullname}));
           
-  } else {
+  } elsif ($msg->schema eq 'sensor.basic' && ($device eq "280709F6010000BB") && ($type eq 'temp')) {
+  	print "Got temperature $current\n";
+  	$url_state{temperature} = $current;
+  }else {
     return 1; # avoid pointless sync
   }
   $tie_h->sync;
@@ -182,10 +185,11 @@ sub xpl_msg {
   	my $sequence = $url_state{$device}{sequence};
   	my $volume   = $url_state{$device}{volume};
   	my $stamp = strftime "%F %R:%S", localtime;
-  
-  	my $result = system ("curl -H \"content-type: application/json\" -u $credentials -f -X POST -d '{ \"meter\": \"/api/v1/meter/2/\", \"temp\": \"0\", \"rssi\": \"$rssi\", \"battery\": \"$sequence\", \"timestamp\": \"$stamp\", \"value\": \"$volume\" }' $url");
+    my $temperature = $url_state{temperature} || 0;
+    
+  	my $result = system ("curl -H \"content-type: application/json\" -u $credentials -f -X POST -d '{ \"meter\": \"/api/v1/meter/2/\", \"temp\": \"$temperature\", \"rssi\": \"$rssi\", \"battery\": \"$sequence\", \"timestamp\": \"$stamp\", \"value\": \"$volume\" }' $url");
   	#print $result;
-  	#print ("curl -H \"content-type: application/json\" -u $credentials -f -X POST -d '{ \"meter\": \"/api/v1/meter/2/\", \"temp\": \"0\", \"rssi\": \"$rssi\", \"battery\": \"$sequence\", \"timestamp\": \"$stamp\", \"value\": \"$volume\" }' $url"); 
+  	#print ("curl -H \"content-type: application/json\" -u $credentials -f -X POST -d '{ \"meter\": \"/api/v1/meter/2/\", \"temp\": \"$temperature\", \"rssi\": \"$rssi\", \"battery\": \"$sequence\", \"timestamp\": \"$stamp\", \"value\": \"$volume\" }' $url"); 
   	
   }
   return 1;
