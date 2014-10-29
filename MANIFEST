@@ -16,6 +16,7 @@ bin/xpl-hddtemp
 bin/xpl-heyu
 bin/xpl-heyu-helper
 bin/xpl-hub
+bin/xpl-iaq2000
 bin/xpl-jabber
 bin/xpl-jeenodes
 bin/xpl-lcdproc
@@ -198,6 +199,7 @@ lib/xPL/Dock/FDNotify.pm
 lib/xPL/Dock/GPower.pm
 lib/xPL/Dock/HDDTemp.pm
 lib/xPL/Dock/Heyu.pm
+lib/xPL/Dock/IAQ2000.pm
 lib/xPL/Dock/Jabber.pm
 lib/xPL/Dock/Jeenodes.pm
 lib/xPL/Dock/LCDproc.pm

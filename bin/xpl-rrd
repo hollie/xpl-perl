@@ -99,7 +99,7 @@ my $xpl = xPL::Client->new(%args, %opt) or die "Failed to create xPL::Client\n";
 $xpl->add_xpl_callback(id => 'xpl',
                        self_skip => 0, targeted => 0,
                        callback => \&xpl_msg);
-$xpl->add_timer(id => 'rrd', timeout => 120, callback => \&rrd);
+$xpl->add_timer(id => 'rrd', timeout => 60, callback => \&rrd);
 
 # Run the main loop
 $xpl->main_loop();
@@ -115,6 +115,7 @@ sub xpl_msg {
   my $device = $msg->field('device');
   my $type = $msg->field('type');
   my $current = $msg->field('current');
+  
   if ($msg->schema eq 'sensor.basic' && $device && $type eq 'temp') {
     my $dev = exists $map{$device} ? $map{$device} : $device;
     delete $state{$dev};
@@ -140,6 +141,14 @@ sub xpl_msg {
     delete $state{$dev};
     $state{$dev.'/uv'} =
       join($c, $time, $type, $current, 1, 'GAUGE', 0, 40);
+  } elsif ($schema eq 'sensor.basic' && $device =~ /^iaq/ && $type eq 'generic') {
+  	print "Got $current\n";
+  	
+    my $dev = exists $map{$device} ? $map{$device} : $device;
+    delete $state{$dev};
+    $state{$dev.'/iaq'} =
+      join($c, $time, $type, $current, 1, 'GAUGE', 450, 20000);
+      update_rrd(time, $dev.'/iaq', split(chr(0), $state{$dev.'/iaq'}));
   } elsif ($schema eq 'sensor.basic' && $device && $type eq 'light') {
     my $dev = exists $map{$device} ? $map{$device} : $device;
     delete $state{$dev};
