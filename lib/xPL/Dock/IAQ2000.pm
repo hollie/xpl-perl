@@ -169,7 +169,7 @@ sub device_reader {
       		);
     		print "Read AQ value $value\n";
     		$xplmsg{schema} = 'sensor.basic';
-			$xplmsg{body} = ['device'  => 'iaq_int', 'type' => 'generic', 'current' => $value, units => 'ppm'];
+			$xplmsg{body} = ['device'  => 'iaq_aww', 'type' => 'generic', 'current' => $value, units => 'ppm'];
 			$xpl->send(%xplmsg);
 		}
     }
