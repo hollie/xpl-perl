@@ -17,6 +17,7 @@ bin/xpl-heyu
 bin/xpl-heyu-helper
 bin/xpl-hub
 bin/xpl-iaq2000
+bin/xpl-ivmeter
 bin/xpl-jabber
 bin/xpl-jeenodes
 bin/xpl-lcdproc
@@ -39,6 +40,7 @@ bin/xpl-rfxcom-tx
 bin/xpl-rrd
 bin/xpl-rrd-graphs
 bin/xpl-rrd-kamstrup
+bin/xpl-davis
 bin/xpl-send.c
 bin/xpl-sender
 bin/xpl-send.sh
@@ -193,6 +195,7 @@ lib/xPL/Dock/Bluetooth.pm
 lib/xPL/Dock/CurrentCost.pm
 lib/xPL/Dock/DateTime.pm
 lib/xPL/Dock/DawnDusk.pm
+lib/xPL/Dock/Davis.pm
 lib/xPL/Dock/DMX.pm
 lib/xPL/Dock/EasyDAQ.pm
 lib/xPL/Dock/FDNotify.pm
@@ -200,6 +203,7 @@ lib/xPL/Dock/GPower.pm
 lib/xPL/Dock/HDDTemp.pm
 lib/xPL/Dock/Heyu.pm
 lib/xPL/Dock/IAQ2000.pm
+lib/xPL/Dock/IVMeter.pm
 lib/xPL/Dock/Jabber.pm
 lib/xPL/Dock/Jeenodes.pm
 lib/xPL/Dock/LCDproc.pm
