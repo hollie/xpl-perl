@@ -30,7 +30,7 @@ This script is an xPL client that interfaces a Davis ISS receiver stick.
 
 use strict;
 use warnings;
-use xPL::Dock qw/Davis/;
+use xPL::Dock qw/IVMeter/;
 $|=1; # autoflush helps debugging
 my $xpl = xPL::Dock->new;
 $xpl->main_loop;
