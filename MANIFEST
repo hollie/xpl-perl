@@ -38,6 +38,7 @@ bin/xpl-rfxcom
 bin/xpl-rfxcom-rx
 bin/xpl-rfxcom-tx
 bin/xpl-rrd
+bin/xpl-rrd-ivmeter
 bin/xpl-rrd-graphs
 bin/xpl-rrd-kamstrup
 bin/xpl-davis
