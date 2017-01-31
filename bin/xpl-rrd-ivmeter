@@ -69,6 +69,8 @@ my $rrd_dir =
 
 mkdir $rrd_dir, 0755 unless (-d $rrd_dir); ## no critic
 
+my %state;
+
 # Create an xPL Client object
 my $xpl = xPL::Client->new(%args, %opt) or die "Failed to create xPL::Client\n";
 
@@ -139,7 +141,7 @@ sub update_rrd {
 #  }
   print "Updating RRD '$rrd' with value $val\n" if ($verbose);
 
-  RRDs::update($rrd, '-t', $var, $t.':'.$val);
+  RRDs::update($rrd, '-t', $var, $last.':'.$val);
   my $err = RRDs::error;
   if ($err) {
     warn "ERROR updating $rrd: $err\n";
