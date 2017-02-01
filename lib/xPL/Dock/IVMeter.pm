@@ -89,6 +89,11 @@ sub init {
   # Init the device name based on the serial of the USB dongle
   if ($self->{_device} =~ /.+\-(\w+)$/) {
     $self->{_device_name} = $1;
+  } elsif ($self->{_device} =~ /\/dev\/ttyUSB/) {
+    print "We're on a device that has non-unique serial port names, trying to fetch the unique number\n";
+    my $unique_id = system ('hwinfo ' . $self->{_device});
+    print "$unique_id";
+
   } else {
     $self->{_device_name} = $self->{_device};
   }
