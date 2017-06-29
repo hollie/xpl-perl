@@ -94,12 +94,21 @@ sub init {
     $self->{_device_name} = $1;
   } elsif ($self->{_device} =~ /\/dev\/ttyUSB/) {
     print "We're on a device that has non-unique serial port names, trying to fetch the unique number\n";
-    my $unique_id = system ('hwinfo ' . $self->{_device});
-    print "$unique_id";
+    my $cmd = "udevadm info -a -n $self->{_device} | grep '{serial}' | head -n1";
+    my $unique_id = `$cmd`;
+    #print "Response from command: " . $unique_id;
 
+    if ($unique_id =~ /=="(\w+)"/) {
+	$self->{_device_name} = $1;
+    } else {
+	$self->{_device_name} = 'non-unique';
+    }
+ 
   } else {
     $self->{_device_name} = $self->{_device};
   }
+
+  print "Device name is set to: " . $self->{_device_name} . "\n";
 
   $self->reset_reading();
 
