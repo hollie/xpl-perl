@@ -31,6 +31,7 @@ use xPL::IOHandler;
 use xPL::Dock::Plug;
 
 use Data::Dumper;
+use Time::HiRes qw ( time );
 
 our @ISA = qw(xPL::Dock::Plug);
 our %EXPORT_TAGS = ( 'all' => [ qw() ] );
@@ -50,10 +51,12 @@ plugin.
 sub getopts {
   my $self = shift;
   $self->{_baud} = 115200;
+  $self->{_logmode} = 0;
   return
     (
      'port=s' => \$self->{_device},
      'ultraverbose+' => \$self->{_ultraverbose},
+     'logmode' => \$self->{_logmode},
     );
 }
 
@@ -158,8 +161,9 @@ sub device_reader {
       $self->report();
     }
 
-    #print "Current: $current, voltage: $voltage\n";
-
+    if ($self->{_logmode}) {
+      print localtime(time()) . ", I: $current, V: $voltage\n";
+    }
 
 
   } else {
@@ -184,7 +188,7 @@ sub report {
 
   $xplmsg{body} = ['device'  => $self->{_device_name}, 'type' => 'current', 'current' => $last->{current}, 'units' => 'uA'];
 
-  print "Sending xpl message with payload $last->{current}\n";
+  print localtime(time()) . " : TX xPL msg with payload: $last->{current} uA\n";
   $xpl->send(%xplmsg);
 
 }
