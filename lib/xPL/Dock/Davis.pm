@@ -30,6 +30,8 @@ use xPL::Dock::Plug;
 
 use Device::Davis::Strmon;
 use Data::Dumper;
+use Net::MQTT::Simple;
+
 
 our @ISA = qw(xPL::Dock::Plug);
 our %EXPORT_TAGS = ( 'all' => [ qw() ] );
@@ -80,6 +82,7 @@ sub init {
                         ack_timeout_callback => 3,
                         output_record_type => 'xPL::IORecord::CRLFLine' );
 
+  $self->{_mqtt} = Net::MQTT::Simple->new('mars.local');
   # Set the state to 'unconnected' to stick, we need to init first!
   $self->{_rfm69}->{connected} = 0;
 
@@ -135,8 +138,16 @@ sub device_reader {
   # Decoder expects the double LFCR to be present, and our reader strips this.
   # So append it again before feeding the decoder.
   my $output = $dec->decode($new_msg . "\n\r\n\r");
+    
   print Dumper($output);
-
+  
+  # Publish to xpl if the CRC is OK
+  if ($output->{crc} eq 'ok') {
+  	undef $output->{crc};
+  	undef $output->{rawpacket};
+  	$self->davis_construct_xpl($output);
+  }
+  
   return;
 
 #  my $result=$self->plugwise_process_response($frame);
@@ -182,11 +193,19 @@ sub davis_construct_xpl( ) {
   # Create the various messages based on the packet that was received
   my @msgs;
 
-  foreach (keys %{$data}) {
-    $xpl->info("DAVIS: Creating xpl packet for $_ with value $data->{$_}\n");
+  print Dumper $data;
 
-    
-  }
+  foreach (keys %{$data}) {
+  	next if ($_ eq 'crc');
+  	next if ($_ eq 'rawpacket');
+  	$self->{_mqtt}->publish( 'weather/' . $_ => $data->{$_}->{'current'});
+  };
+	
+		
+    #$xpl->info("DAVIS: Creating xpl packet for $_ with value $data->{$_}\n");
+	#$xplmsg{body} = ['device' => $_, $data->{$_}];
+	#$xpl->send(%xplmsg);
+  
 
 
 #  #   circle off resp|  seq. nr.     |    | circle MAC
