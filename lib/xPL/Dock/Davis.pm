@@ -139,7 +139,7 @@ sub device_reader {
   # So append it again before feeding the decoder.
   my $output = $dec->decode($new_msg . "\n\r\n\r");
     
-  print Dumper($output);
+  #print Dumper($output);
   
   # Publish to xpl if the CRC is OK
   if ($output->{crc} eq 'ok') {
@@ -193,7 +193,7 @@ sub davis_construct_xpl( ) {
   # Create the various messages based on the packet that was received
   my @msgs;
 
-  print Dumper $data;
+  #print Dumper $data;
 
   foreach (keys %{$data}) {
   	next if ($_ eq 'crc');
