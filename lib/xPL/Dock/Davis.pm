@@ -82,7 +82,7 @@ sub init {
                         ack_timeout_callback => 3,
                         output_record_type => 'xPL::IORecord::CRLFLine' );
 
-  $self->{_mqtt} = Net::MQTT::Simple->new('mars.local');
+  $self->{_mqtt} = Net::MQTT::Simple->new('nessie.local');
   # Set the state to 'unconnected' to stick, we need to init first!
   $self->{_rfm69}->{connected} = 0;
 

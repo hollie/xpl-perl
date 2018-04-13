@@ -6,6 +6,7 @@ bin/xpl-config
 bin/xpl-ctx35
 bin/xpl-currentcost
 bin/xpl-datetime
+bin/xpl-davis
 bin/xpl-dawndusk
 bin/xpl-dg834
 bin/xpl-dmx
