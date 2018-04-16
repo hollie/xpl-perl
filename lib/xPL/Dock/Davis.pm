@@ -2,11 +2,11 @@ package xPL::Dock::Davis;
 
 =head1 NAME
 
-xPL::Dock::Plugwise - xPL::Dock plugin for a David ISS console receiver
+xPL::Dock::Davis - xPL::Dock plugin for a David ISS console receiver
 
 =head1 SYNOPSIS
 
-  use xPL::Dock qw/Plugwise/;
+  use xPL::Dock qw/Davis/;
   my $xpl = xPL::Dock->new();
   $xpl->main_loop();
 
@@ -94,6 +94,8 @@ sub init {
   sleep(2);
   
   $self->stick_init();
+  
+  $self->{_last_valid_rx} = 0;
 
   $self->{_decoder} = Device::Davis::Strmon->new();
 
@@ -143,6 +145,7 @@ sub device_reader {
   
   # Publish to xpl if the CRC is OK
   if ($output->{crc} eq 'ok') {
+  	$self->{_last_valid_rx} = time();
   	undef $output->{crc};
   	undef $output->{rawpacket};
   	$self->davis_construct_xpl($output);
@@ -370,6 +373,29 @@ sub write_packet_to_stick {
   $self->{_io}->write($packet);
 
   return 1;
+}
+
+sub get_last_valid_rx_time {
+	my $self = shift();
+	return $self->{_last_valid_rx};
+}
+
+sub reset_rx {
+
+	my $self = shift();
+	
+	$self->{_xpl}->ouch("Resetting RX because no data came in");
+	#$self->{_io}->
+	
+  	$self->{_io} = undef;
+  	sleep(1);
+    $self->{_io} = xPL::IOHandler->new(xpl => $self->{_xpl}, verbose => $self->verbose,
+                        device => $self->{_device},
+                        baud => $self->{_baud},
+                        reader_callback => sub { $self->device_reader(@_) },
+                        input_record_type => 'xPL::IORecord::DoubleLFCRLine',
+                        ack_timeout_callback => 3,
+                        output_record_type => 'xPL::IORecord::CRLFLine' );
 }
 
 1;

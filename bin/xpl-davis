@@ -37,11 +37,24 @@ Log::Log4perl->easy_init($INFO);
 
 $|=1; # autoflush helps debugging
 my $xpl = xPL::Dock->new;
+
+# Add a timer that resets the hardware of no messages are received
+$xpl->add_timer(id => 'checkdata',
+            timeout => 30,
+            callback => \&check_last_valid_message);
+                
 $xpl->main_loop;
 
 # send a 'hbeat.end' message on exit
 END { defined $xpl && $xpl->send_hbeat_end(); }
 
+
+sub check_last_valid_message {
+	if ( (time() - $xpl->{_plugins}->[0]->get_last_valid_rx_time()) > 60 ) {
+		INFO "Oops: last message seems too old, resetting the port to restart RX";
+		$xpl->{_plugins}->[0]->reset_rx();
+	}
+}
 =head1 BUGS
 
 none
