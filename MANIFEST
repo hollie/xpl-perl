@@ -42,6 +42,7 @@ bin/xpl-rrd
 bin/xpl-rrd-ivmeter
 bin/xpl-rrd-graphs
 bin/xpl-rrd-kamstrup
+bin/xpl-sense
 bin/xpl-davis
 bin/xpl-send.c
 bin/xpl-sender
@@ -219,6 +220,7 @@ lib/xPL/Dock/Plug.pm
 lib/xPL/Dock.pm
 lib/xPL/Dock/RFXComRX.pm
 lib/xPL/Dock/RFXComTX.pm
+lib/xPL/Dock/Sense.pm
 lib/xPL/Dock/SMART.pm
 lib/xPL/Dock/TCPHelp.pm
 lib/xPL/Dock/TME50.pm
