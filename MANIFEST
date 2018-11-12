@@ -17,6 +17,7 @@ bin/xpl-hddtemp
 bin/xpl-heyu
 bin/xpl-heyu-helper
 bin/xpl-hub
+bin/xpl-hsv
 bin/xpl-iaq2000
 bin/xpl-ivmeter
 bin/xpl-jabber
@@ -205,6 +206,7 @@ lib/xPL/Dock/FDNotify.pm
 lib/xPL/Dock/GPower.pm
 lib/xPL/Dock/HDDTemp.pm
 lib/xPL/Dock/Heyu.pm
+lib/xPL/Dock/HSV.pm
 lib/xPL/Dock/IAQ2000.pm
 lib/xPL/Dock/IVMeter.pm
 lib/xPL/Dock/Jabber.pm
