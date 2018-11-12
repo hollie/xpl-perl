@@ -249,7 +249,7 @@ sub hsv_process_response
   	my $lqi            = hex($7);
   	my $rssi           = hex($8) - 256;
   	
-  	my ($info, $volume, $tgt_volume, $t_min, $t_amb) = $self->_kamstrup_payload_decode($payload);
+  	my ($info, $volume, $max_flow, $t_min, $t_amb) = $self->_kamstrup_payload_decode($payload);
 
   	$address = substr($address, 0, 8);
   	$address = $self->_byte_reverse($address);
@@ -261,7 +261,7 @@ sub hsv_process_response
   	say "Session #      : " . $session_number;
   	say "Info           : " . $info;
   	say "Volume         : " . $volume;
-  	say "Target Volume  : " . $tgt_volume;
+  	say "Max flow       : " . $max_flow;
   	say "Temp min/amb   : " . $t_min . " " . $t_amb;
   	say "LQI            : " . $lqi;
   	say "RSSI           : " . $rssi ." dBm";
@@ -273,7 +273,7 @@ sub hsv_process_response
   	$xplmsg{body} = ['device' => $address . "-volume", 'type' => 'volume', 'current' => $volume];
   	push(@xpl_messages, {%xplmsg});
 
-  	$xplmsg{body} = ['device' => $address . "-tgtvolume", 'type' => 'volume', 'current' => $tgt_volume];
+  	$xplmsg{body} = ['device' => $address . "-maxflow", 'type' => 'volume', 'current' => $max_flow];
  	push(@xpl_messages, {%xplmsg});
  	
   	$xplmsg{body} = ['device' => $address . "-rssi", 'type' => 'generic', 'current' => $rssi];
@@ -307,7 +307,7 @@ sub hsv_process_response
 sub _kamstrup_payload_decode {
 	my ($self, $payload) = @_;
 	
-	my ($info, $volume, $tgt_volume, $min_temp, $amb_temp);
+	my ($info, $volume, $max_flow, $min_temp, $amb_temp);
 	
 	if ($payload =~ /^79\w{8}(\w{4})(\w{8})(\w{4})(\w{2})(\w{2})/ || 
 	# 7802FF20 7100 0413 00000000 92013B 0000 A1015B 7F 8101E7FF0F 18 72CA
@@ -316,14 +316,14 @@ sub _kamstrup_payload_decode {
 		# Compact frame and full frame
 		$info       = hex($self->_byte_reverse($1)) % 16;
 		$volume     = hex($self->_byte_reverse($2));
-		$tgt_volume = hex($self->_byte_reverse($3));
+		$max_flow = hex($self->_byte_reverse($3));
 		$min_temp   = hex($4);
 		$amb_temp   = hex($5);
 	} else {
 		$self->{_xpl}->ouch("Could not decode payload $payload");
 	}
 	
-	return ($info, $volume, $tgt_volume, $min_temp, $amb_temp);
+	return ($info, $volume, $max_flow, $min_temp, $amb_temp);
 }
 
 sub _byte_reverse {
